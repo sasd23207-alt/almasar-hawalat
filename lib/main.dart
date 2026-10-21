@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -313,7 +312,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
         TextFormField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم واتساب الدولي', hintText: 'مثال: 2189xxxxxxx')),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
-          value: _currency,
+          initialValue: _currency,
           decoration: const InputDecoration(labelText: 'عملة الحساب'),
           items: const [
             DropdownMenuItem(value: 'LYD', child: Text('دينار ليبي (LYD)')),
@@ -437,14 +436,14 @@ class _AddTransferDialogState extends State<AddTransferDialog> {
                   key: _formKey,
                   child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
                     DropdownButtonFormField<int>(
-                      value: _customerId,
+                      initialValue: _customerId,
                       decoration: const InputDecoration(labelText: 'العميل'),
                       items: _customers.map((customer) => DropdownMenuItem<int>(value: customer['id'] as int, child: Text('${customer['name']} — ${customer['currency']}'))).toList(),
                       onChanged: (value) => setState(() => _customerId = value),
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: _kind,
+                      initialValue: _kind,
                       decoration: const InputDecoration(labelText: 'نوع العملية'),
                       items: const [
                         DropdownMenuItem(value: 'deposit', child: Text('إيداع / استلام')),
