@@ -136,7 +136,7 @@ class WhatsAppChatParser {
   static String _normalizeParticipant(String? value) {
     if (value == null) return '';
     return value.trim().toLowerCase()
-        .replaceAll(RegExp(r'\\s+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
         .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
         .replaceAll('ى', 'ي');
   }
