@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../core/ledger_integrity.dart';
+
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -379,6 +381,13 @@ class LocalDatabase {
       }
       return row;
     }).toList();
+
+    // Refuse a backup whose recorded balances contradict its own ledger.
+    // This check runs before the destructive replacement transaction.
+    validateCustomerLedger(
+      customerRows: customerRows,
+      transferRows: transferRows,
+    );
 
     final merchantRows = ((decoded['merchants'] as List?) ?? const []).map((value) {
       if (value is! Map) throw const FormatException('بيانات تاجر غير صالحة');
