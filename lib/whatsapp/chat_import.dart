@@ -160,3 +160,47 @@ class WhatsAppChatParser {
     return null;
   }
 }
+
+/// Parses a WhatsApp export date only when its numeric order is unambiguous.
+/// Supports ISO dates, day-first dates, and month-first dates where the day > 12.
+String? parseWhatsAppDate(String? raw) {
+  if (raw == null) return null;
+  const arabic = '٠١٢٣٤٥٦٧٨٩';
+  const persian = '۰۱۲۳۴۵۶۷۸۹';
+  var value = raw;
+  for (var i = 0; i < 10; i++) {
+    value = value.replaceAll(arabic[i], '$i').replaceAll(persian[i], '$i');
+  }
+  final iso = RegExp(r'(\\d{4})-(\\d{1,2})-(\\d{1,2})').firstMatch(value);
+  final numeric = RegExp(r'(\\d{1,2})[/-](\\d{1,2})[/-](\\d{2,4})').firstMatch(value);
+  int year;
+  int month;
+  int day;
+  if (iso != null) {
+    year = int.parse(iso.group(1)!);
+    month = int.parse(iso.group(2)!);
+    day = int.parse(iso.group(3)!);
+  } else if (numeric != null) {
+    final first = int.parse(numeric.group(1)!);
+    final second = int.parse(numeric.group(2)!);
+    year = int.parse(numeric.group(3)!);
+    if (first <= 12 && second <= 12) return null;
+    if (first > 12) {
+      day = first;
+      month = second;
+    } else {
+      month = first;
+      day = second;
+    }
+    if (year < 100) year += year >= 70 ? 1900 : 2000;
+  } else {
+    return null;
+  }
+  try {
+    final date = DateTime.utc(year, month, day);
+    if (date.year != year || date.month != month || date.day != day) return null;
+    return date.toIso8601String();
+  } catch (_) {
+    return null;
+  }
+}
