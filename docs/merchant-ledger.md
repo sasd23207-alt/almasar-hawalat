@@ -6,6 +6,8 @@
 - [WRITTEN-ONLY until CI passes] Merchant accounts and ledger entries are stored in local SQLite tables.
 - [WRITTEN-ONLY until CI passes] The import batch is atomic; exact duplicate source keys are ignored.
 - [WRITTEN-ONLY until CI passes] Statement totals are grouped by currency and direction.
+- [WRITTEN-ONLY until CI passes] Backup restore now reconciles every customer's stored balance against deposits minus withdrawals and rejects mismatched currencies, missing customers, and duplicate references before replacing local records.
+- [WRITTEN-ONLY until CI passes] WhatsApp candidates are forced to manual review when a second fee/balance amount appears or a message contains conflicting send/receive wording.
 - [NOT IMPLEMENTED] Automatic exchange-rate conversion. No cross-currency net total is calculated.
 - [NOT IMPLEMENTED] Automatic access to private WhatsApp chats. The user must export and choose the text file.
 - [NOT VERIFIED] Testing on a physical Android phone and with real merchant exports.
@@ -41,5 +43,7 @@ Merchant data is stored on the device in the app's SQLite database. Version-2 ba
 - [ ] Compare imported rows against the original conversation line-by-line.
 - [ ] Re-import the same file and confirm duplicates are ignored.
 - [ ] Export and restore a version-2 backup on a second test device.
+- [ ] Verify the new backup reconciliation rejects a deliberately altered balance and still preserves current data on failed restore.
+- [ ] Verify a fee-plus-transfer message and conflicting direction message are sent to manual review.
 - [ ] Have an accountant validate ledger direction conventions and statement totals.
 - [ ] Test on the target Android devices; CI build success alone does not verify device behavior.
