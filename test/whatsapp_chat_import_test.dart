@@ -23,7 +23,8 @@ void main() {
       expect(rows, hasLength(1));
       expect(rows.single.amountText, '250');
       expect(rows.single.currency, 'USD');
-      expect(rows.single.direction, 'received_from_trader');
+      // The trader authored "you sent me", so this is paid to the trader.
+      expect(rows.single.direction, 'paid_to_trader');
     });
 
     test('keeps ambiguous transfer wording for manual review', () {
@@ -124,7 +125,8 @@ void main() {
       expect(rows, hasLength(1));
       expect(rows.single.amountText, '250');
       expect(rows.single.currency, 'USD');
-      expect(rows.single.direction, 'received_from_trader');
+      // The trader authored "you sent me", so this is paid to the trader.
+      expect(rows.single.direction, 'paid_to_trader');
     });
 
     test('does not infer a direction from a generic payment statement', () {
