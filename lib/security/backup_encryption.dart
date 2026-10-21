@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
 
@@ -28,7 +29,8 @@ class BackupEncryption {
     if (passphrase.length < 10) {
       throw ArgumentError('كلمة مرور النسخة الاحتياطية يجب أن تكون 10 أحرف على الأقل.');
     }
-    final salt = _kdf.newNonce();
+    final random = Random.secure();
+    final salt = List<int>.generate(16, (_) => random.nextInt(256));
     final key = await _kdf.deriveKey(
       secretKey: SecretKey(utf8.encode(passphrase)),
       nonce: salt,
