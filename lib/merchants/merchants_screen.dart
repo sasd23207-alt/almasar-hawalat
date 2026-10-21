@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 
 import '../core/money.dart';
@@ -171,60 +170,60 @@ class _ReviewImportScreenState extends State<_ReviewImportScreen> {
       setState(() => _error = 'اختر عملية واحدة على الأقل بعد مراجعتها.');
       return;
     }
-    final invalid = selected.any((row) =>
-      row.direction == null || row.currency == null || row.amount.text.trim().isEmpty ||
-      double.tryParse(row.amount.text.trim().replaceAll(',', '.')) == null ||
-      double.parse(row.amount.text.trim().replaceAll(',', '.')) <= 0
-    );
-    if (invalid) {
-      setState(() => _error = 'هناك عملية مختارة ناقصة أو غير صحيحة. حدّد الاتجاه والعملة والمبلغ لكل عملية.');
+    final prepared = <MapEntry<_EditableCandidate, int>>[];
+    try {
+      for (final row in selected) {
+        if (row.direction == null || row.direction == 'review' || row.currency == null) {
+          throw const FormatException('حدد اتجاهًا مؤكدًا وعملة لكل عملية مختارة.');
+        }
+        final amountMinor = toMinorUnits(row.amount.text.trim(), row.currency!);
+        prepared.add(MapEntry(row, amountMinor));
+      }
+    } catch (error) {
+      setState(() => _error = 'لم يُحفظ شيء. راجع البيانات: $error');
       return;
     }
     setState(() { _saving = true; _error = null; });
-    var inserted = 0;
-    var duplicates = 0;
     try {
       final merchantId = await LocalDatabase.instance.getOrCreateMerchant(name: widget.details.name, phone: widget.details.phone);
       final batch = DateTime.now().toUtc().toIso8601String();
-      for (final row in selected) {
+      final payload = <Map<String, Object?>>[];
+      for (final entry in prepared) {
+        final row = entry.key;
+        final amountMinor = entry.value;
         final currency = row.currency!;
-        final amountMinor = toMinorUnits(row.amount.text.trim(), currency);
         final keyText = '${widget.details.name.toLowerCase()}|'
             '${row.candidate.dateText ?? ''}|'
             '${row.candidate.sender ?? ''}|'
             '${row.candidate.message.trim()}|'
             '${amountMinor}|$currency|${row.direction}';
-        final key = base64Url.encode(utf8.encode(keyText));
-        final wasInserted = await LocalDatabase.instance.addMerchantTransaction(
-          merchantId: merchantId,
-          sourceKey: key,
-          transactionDate: _parseDate(row.candidate.dateText),
-          sender: row.candidate.sender ?? '',
-          originalMessage: row.candidate.message,
-          amountMinor: amountMinor,
-          currency: currency,
-          direction: row.direction!,
-          importBatch: batch,
-        );
-        if (wasInserted) {
-          inserted++;
-        } else {
-          duplicates++;
-        }
+        payload.add({
+          'merchant_id': merchantId,
+          'source_key': base64Url.encode(utf8.encode(keyText)),
+          'transaction_date': _parseDate(row.candidate.dateText),
+          'sender': row.candidate.sender ?? '',
+          'original_message': row.candidate.message,
+          'amount_minor': amountMinor,
+          'currency': currency,
+          'direction': row.direction!,
+          'import_batch': batch,
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        });
       }
+      final result = await LocalDatabase.instance.addMerchantTransactionsBatch(payload);
       if (mounted) {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('ملخص الاستيراد'),
-            content: Text('عمليات جديدة: $inserted\nعمليات مكررة تم تجاهلها: $duplicates\n\nراجع كشف الحساب، خصوصًا العمليات التي عدّلتها يدويًا.'),
+            content: Text('عمليات جديدة: ${result['inserted']}\nعمليات مكررة تم تجاهلها: ${result['duplicates']}\n\nراجع كشف الحساب، خصوصًا العمليات التي عدّلتها يدويًا.'),
             actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('تم'))],
           ),
         );
         if (mounted) Navigator.pop(context, true);
       }
     } catch (error) {
-      if (mounted) setState(() { _saving = false; _error = 'توقف الحفظ بسبب خطأ: $error'; });
+      if (mounted) setState(() { _saving = false; _error = 'لم يكتمل الاستيراد: $error'; });
     }
   }
 
