@@ -98,6 +98,37 @@ void main() {
       expect(rows.single.confidence, 'review');
     });
 
+
+    test('recognizes iPhone-style bracketed export with seconds and AM/PM', () {
+      final rows = WhatsAppChatParser.parse(
+        '[10/21/26, 10:30:45 AM] Salem: حولت لك ١٥٠ دينار ليبي',
+      );
+      expect(rows, hasLength(1));
+      expect(rows.single.amountText, '150');
+      expect(rows.single.currency, 'LYD');
+      expect(rows.single.direction, 'paid_to_trader');
+      expect(rows.single.dateText, '[10/21/26, 10:30:45 AM]');
+    });
+
+    test('recognizes ISO export timestamp with seconds', () {
+      final rows = WhatsAppChatParser.parse(
+        '2026-10-20, 12:00:30 - Trader: أرسلت لي 250 USD',
+      );
+      expect(rows, hasLength(1));
+      expect(rows.single.amountText, '250');
+      expect(rows.single.currency, 'USD');
+      expect(rows.single.direction, 'received_from_trader');
+    });
+
+    test('does not infer a direction from a generic payment statement', () {
+      final rows = WhatsAppChatParser.parse(
+        '21/10/2026, 11:48 - Salem: تم تحويل مبلغ 90 USD',
+      );
+      expect(rows, hasLength(1));
+      expect(rows.single.direction, 'review');
+      expect(rows.single.confidence, 'review');
+    });
+
     test('ignores ordinary messages with no money context', () {
       expect(
         WhatsAppChatParser.parse('21/10/2026, 10:30 - Salem: تمام شكرا'),
