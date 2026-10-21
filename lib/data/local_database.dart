@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -6,6 +8,7 @@ class LocalDatabase {
 
   static final LocalDatabase instance = LocalDatabase._();
   static Database? _database;
+  static const supportedCurrencies = {'LYD', 'USD', 'EUR'};
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -57,11 +60,7 @@ class LocalDatabase {
 
   Future<List<Map<String, Object?>>> getTransfers({int limit = 200}) async {
     final db = await database;
-    return db.query(
-      'transfers',
-      orderBy: 'id DESC',
-      limit: limit,
-    );
+    return db.query('transfers', orderBy: 'id DESC', limit: limit);
   }
 
   Future<Map<String, int>> getSummary() async {
@@ -84,7 +83,7 @@ class LocalDatabase {
   }) async {
     final cleanName = name.trim();
     if (cleanName.isEmpty) throw ArgumentError('اسم العميل مطلوب');
-    if (!const {'LYD', 'USD', 'EUR'}.contains(currency)) {
+    if (!supportedCurrencies.contains(currency)) {
       throw ArgumentError('العملة غير مدعومة');
     }
     final db = await database;
@@ -122,7 +121,11 @@ class LocalDatabase {
       if (rows.isEmpty) throw StateError('العميل غير موجود');
       final customer = rows.first;
       final current = customer['balance_minor'] as int;
-      final next = kind == 'deposit' ? current + amountMinor : current - amountMinor;
+      final amount = amountMinor;
+      if (kind == 'deposit' && current > 0x7fffffffffffffff - amount) {
+        throw StateError('المبلغ أكبر من الحد الذي يمكن تخزينه');
+      }
+      final next = kind == 'deposit' ? current + amount : current - amount;
       if (kind == 'withdrawal' && next < 0) {
         throw StateError('الرصيد غير كافٍ لإتمام العملية');
       }
@@ -141,12 +144,88 @@ class LocalDatabase {
         'customer_name': customer['name'],
         'phone': customer['phone'],
         'kind': kind,
-        'amount_minor': amountMinor,
+        'amount_minor': amount,
         'currency': customer['currency'],
         'note': note.trim(),
         'created_at': DateTime.now().toUtc().toIso8601String(),
       });
     });
     return reference;
+  }
+
+  /// Produces a versioned portable backup. The caller is responsible for
+  /// sharing/storing the returned text securely.
+  Future<String> exportBackup() async {
+    final db = await database;
+    final customers = await db.query('customers', orderBy: 'id ASC');
+    final transfers = await db.query('transfers', orderBy: 'id ASC');
+    return const JsonEncoder.withIndent('  ').convert({
+      'format': 'almasar_hawalat_backup',
+      'schema_version': 1,
+      'created_at': DateTime.now().toUtc().toIso8601String(),
+      'customers': customers,
+      'transfers': transfers,
+    });
+  }
+
+  /// Replaces all local records only after basic validation. All deletes and
+  /// inserts run in one SQLite transaction so a failed restore rolls back.
+  Future<void> restoreBackup(String backupText) async {
+    final decoded = jsonDecode(backupText);
+    if (decoded is! Map<String, dynamic> ||
+        decoded['format'] != 'almasar_hawalat_backup' ||
+        decoded['schema_version'] != 1 ||
+        decoded['customers'] is! List ||
+        decoded['transfers'] is! List) {
+      throw const FormatException('ملف النسخة الاحتياطية غير معروف أو غير مدعوم');
+    }
+
+    final customerRows = (decoded['customers'] as List).map((value) {
+      if (value is! Map) throw const FormatException('بيانات عميل غير صالحة');
+      final row = Map<String, Object?>.from(value);
+      if (row['id'] is! int ||
+          row['name'] is! String ||
+          (row['name'] as String).trim().isEmpty ||
+          row['phone'] is! String ||
+          !supportedCurrencies.contains(row['currency']) ||
+          row['balance_minor'] is! int ||
+          row['created_at'] is! String) {
+        throw const FormatException('بيانات عميل غير صالحة');
+      }
+      return row;
+    }).toList();
+
+    final customerIds = customerRows.map((row) => row['id'] as int).toSet();
+    final transferRows = (decoded['transfers'] as List).map((value) {
+      if (value is! Map) throw const FormatException('بيانات عملية غير صالحة');
+      final row = Map<String, Object?>.from(value);
+      if (row['id'] is! int ||
+          row['reference'] is! String ||
+          row['customer_id'] is! int ||
+          !customerIds.contains(row['customer_id']) ||
+          row['customer_name'] is! String ||
+          row['phone'] is! String ||
+          !{'deposit', 'withdrawal'}.contains(row['kind']) ||
+          row['amount_minor'] is! int ||
+          (row['amount_minor'] as int) <= 0 ||
+          !supportedCurrencies.contains(row['currency']) ||
+          row['note'] is! String ||
+          row['created_at'] is! String) {
+        throw const FormatException('بيانات عملية غير صالحة');
+      }
+      return row;
+    }).toList();
+
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('transfers');
+      await txn.delete('customers');
+      for (final row in customerRows) {
+        await txn.insert('customers', row);
+      }
+      for (final row in transferRows) {
+        await txn.insert('transfers', row);
+      }
+    });
   }
 }
