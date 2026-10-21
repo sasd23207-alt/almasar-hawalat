@@ -285,12 +285,16 @@ class LocalDatabase {
     final db = await database;
     final customers = await db.query('customers', orderBy: 'id ASC');
     final transfers = await db.query('transfers', orderBy: 'id ASC');
+    final merchants = await db.query('merchant_accounts', orderBy: 'id ASC');
+    final merchantTransactions = await db.query('merchant_transactions', orderBy: 'id ASC');
     return const JsonEncoder.withIndent('  ').convert({
       'format': 'almasar_hawalat_backup',
-      'schema_version': 1,
+      'schema_version': 2,
       'created_at': DateTime.now().toUtc().toIso8601String(),
       'customers': customers,
       'transfers': transfers,
+      'merchants': merchants,
+      'merchant_transactions': merchantTransactions,
     });
   }
 
@@ -300,7 +304,7 @@ class LocalDatabase {
     final decoded = jsonDecode(backupText);
     if (decoded is! Map<String, dynamic> ||
         decoded['format'] != 'almasar_hawalat_backup' ||
-        decoded['schema_version'] != 1 ||
+        !{1, 2}.contains(decoded['schema_version']) ||
         decoded['customers'] is! List ||
         decoded['transfers'] is! List) {
       throw const FormatException('ملف النسخة الاحتياطية غير معروف أو غير مدعوم');
@@ -342,8 +346,40 @@ class LocalDatabase {
       return row;
     }).toList();
 
+    final merchantRows = ((decoded['merchants'] as List?) ?? const []).map((value) {
+      if (value is! Map) throw const FormatException('بيانات تاجر غير صالحة');
+      final row = Map<String, Object?>.from(value);
+      if (row['id'] is! int || row['name'] is! String ||
+          (row['name'] as String).trim().isEmpty ||
+          row['phone'] is! String || row['notes'] is! String ||
+          row['created_at'] is! String) {
+        throw const FormatException('بيانات تاجر غير صالحة');
+      }
+      return row;
+    }).toList();
+    final merchantIds = merchantRows.map((row) => row['id'] as int).toSet();
+    final merchantTransactionRows = ((decoded['merchant_transactions'] as List?) ?? const []).map((value) {
+      if (value is! Map) throw const FormatException('بيانات عملية تاجر غير صالحة');
+      final row = Map<String, Object?>.from(value);
+      if (row['id'] is! int || row['merchant_id'] is! int ||
+          !merchantIds.contains(row['merchant_id']) ||
+          row['source_key'] is! String || row['original_message'] is! String ||
+          row['sender'] is! String || row['amount_minor'] is! int ||
+          (row['amount_minor'] as int) <= 0 ||
+          !supportedCurrencies.contains(row['currency']) ||
+          !{'paid_to_trader', 'received_from_trader'}.contains(row['direction']) ||
+          row['import_batch'] is! String || row['created_at'] is! String ||
+          (row['transaction_date'] != null && row['transaction_date'] is! String) ||
+          (row['exchange_rate_micros'] != null && row['exchange_rate_micros'] is! int)) {
+        throw const FormatException('بيانات عملية تاجر غير صالحة');
+      }
+      return row;
+    }).toList();
+
     final db = await database;
     await db.transaction((txn) async {
+      await txn.delete('merchant_transactions');
+      await txn.delete('merchant_accounts');
       await txn.delete('transfers');
       await txn.delete('customers');
       for (final row in customerRows) {
@@ -351,6 +387,12 @@ class LocalDatabase {
       }
       for (final row in transferRows) {
         await txn.insert('transfers', row);
+      }
+      for (final row in merchantRows) {
+        await txn.insert('merchant_accounts', row);
+      }
+      for (final row in merchantTransactionRows) {
+        await txn.insert('merchant_transactions', row);
       }
     });
   }
