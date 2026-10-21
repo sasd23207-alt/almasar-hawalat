@@ -1,8 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'dart:io';
 
 import '../core/money.dart';
 import '../data/local_database.dart';
@@ -262,7 +262,7 @@ class _ReviewImportScreenState extends State<_ReviewImportScreen> {
                   Expanded(child: TextField(controller: row.amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'المبلغ'))),
                   const SizedBox(width: 8),
                   Expanded(child: DropdownButtonFormField<String>(
-                    value: row.currency,
+                    initialValue: row.currency,
                     decoration: const InputDecoration(labelText: 'العملة'),
                     items: const [
                       DropdownMenuItem(value: 'LYD', child: Text('LYD')),
@@ -274,7 +274,7 @@ class _ReviewImportScreenState extends State<_ReviewImportScreen> {
                 ]),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: row.direction,
+                  initialValue: row.direction,
                   decoration: const InputDecoration(labelText: 'اتجاه العملية'),
                   items: const [
                     DropdownMenuItem(value: 'paid_to_trader', child: Text('أرسلت للتاجر')),
