@@ -62,6 +62,24 @@ void main() {
       expect(rows.single.currency, 'USD');
     });
 
+    test('prefers currency-linked amount over an earlier transfer reference number', () {
+      final rows = WhatsAppChatParser.parse(
+        '21/10/2026, 11:40 - Salem: تم التحويل رقم 12345 بمبلغ 200 USD لك',
+      );
+      expect(rows, hasLength(1));
+      expect(rows.single.amountText, '200');
+      expect(rows.single.currency, 'USD');
+    });
+
+    test('flags messages containing multiple explicit money amounts for review', () {
+      final rows = WhatsAppChatParser.parse(
+        '21/10/2026, 11:45 - Salem: حولت لك 100 USD وتساوي 500 LYD',
+      );
+      expect(rows, hasLength(1));
+      expect(rows.single.direction, 'review');
+      expect(rows.single.confidence, 'review');
+    });
+
     test('ignores ordinary messages with no money context', () {
       expect(
         WhatsAppChatParser.parse('21/10/2026, 10:30 - Salem: تمام شكرا'),
