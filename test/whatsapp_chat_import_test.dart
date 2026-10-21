@@ -2,6 +2,37 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:almasar_hawalat/whatsapp/chat_import.dart';
 
 void main() {
+  group('parseWhatsAppDate', () {
+    test('parses ISO date with timestamp', () {
+      expect(
+        parseWhatsAppDate('2026-10-20, 12:00:30'),
+        DateTime.utc(2026, 10, 20).toIso8601String(),
+      );
+    });
+
+    test('parses month-first iPhone date when the day is greater than 12', () {
+      expect(
+        parseWhatsAppDate('[10/21/26, 10:30:45 AM]'),
+        DateTime.utc(2026, 10, 21).toIso8601String(),
+      );
+    });
+
+    test('parses day-first date when the day is greater than 12', () {
+      expect(
+        parseWhatsAppDate('21/10/2026, 10:30'),
+        DateTime.utc(2026, 10, 21).toIso8601String(),
+      );
+    });
+
+    test('does not guess when both day and month are twelve or less', () {
+      expect(parseWhatsAppDate('10/11/2026, 10:30'), isNull);
+    });
+
+    test('rejects impossible dates', () {
+      expect(parseWhatsAppDate('31/02/2026, 10:30'), isNull);
+    });
+  });
+
   group('WhatsAppChatParser', () {
     test('recognizes Arabic transfer phrase, Arabic digits, and LYD', () {
       final rows = WhatsAppChatParser.parse(
