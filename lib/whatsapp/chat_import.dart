@@ -80,12 +80,29 @@ class WhatsAppChatParser {
       final amountText = _normalizeDigits(amountMatch.group(2) ?? '');
       if (amountText.isEmpty || double.tryParse(amountText.replaceAll(',', '').replaceAll('٬', '').replaceAll('٫', '.')) == null) continue;
       final currency = _currency(amountMatch.group(1)) ?? _currency(amountMatch.group(3));
-      final multipleExplicitAmounts = currencyMatches.length > 1;
-      final detectedDirection = _paid.hasMatch(body)
-          ? 'paid_to_trader'
-          : _received.hasMatch(body)
-              ? 'received_from_trader'
-              : 'review';
+      // A second amount may be a fee, balance, or currency conversion even
+      // when only one amount has an explicit currency. Never choose silently.
+      final secondaryAmountCue = RegExp(
+        r'(مبلغ|بمبلغ|قيمة|عمولة|رسوم|خصم|تساوي|يساوي|المتبقي|الرصيد|amount|fee|commission|equals|balance)',
+        caseSensitive: false,
+      );
+      final hasUnlabelledSecondaryMoney = amountMatches.any((match) {
+        final isCurrencyTagged =
+            _currency(match.group(1)) != null || _currency(match.group(3)) != null;
+        if (isCurrencyTagged || match.start == amountMatch.start) return false;
+        final start = match.start - 24 < 0 ? 0 : match.start - 24;
+        final end = match.end + 12 > body.length ? body.length : match.end + 12;
+        return secondaryAmountCue.hasMatch(body.substring(start, end));
+      });
+      final multipleExplicitAmounts =
+          currencyMatches.length > 1 || hasUnlabelledSecondaryMoney;
+      final hasPaidPhrase = _paid.hasMatch(body);
+      final hasReceivedPhrase = _received.hasMatch(body);
+      final detectedDirection = hasPaidPhrase == hasReceivedPhrase
+          ? 'review'
+          : hasPaidPhrase
+              ? 'paid_to_trader'
+              : 'received_from_trader';
       final direction = multipleExplicitAmounts ? 'review' : detectedDirection;
       results.add(WhatsAppCandidate(
         dateText: item['date'],
