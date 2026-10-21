@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'core/money.dart';
 import 'data/local_database.dart';
+import 'merchants/merchants_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -109,6 +110,7 @@ class _HomeScreenState extends State<HomeScreen> {
       DashboardScreen(key: ValueKey('dashboard-$_refreshKey')),
       CustomersScreen(key: ValueKey('customers-$_refreshKey'), onChanged: _refresh),
       TransfersScreen(key: ValueKey('transfers-$_refreshKey'), onChanged: _refresh),
+      MerchantsScreen(key: ValueKey('merchants-$_refreshKey'), onChanged: _refresh),
     ];
     return Scaffold(
       appBar: AppBar(
@@ -137,6 +139,7 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(icon: Icon(Icons.space_dashboard_outlined), selectedIcon: Icon(Icons.space_dashboard), label: 'الرئيسية'),
           NavigationDestination(icon: Icon(Icons.people_alt_outlined), selectedIcon: Icon(Icons.people_alt), label: 'العملاء'),
           NavigationDestination(icon: Icon(Icons.swap_horiz), selectedIcon: Icon(Icons.swap_horiz), label: 'الحوالات'),
+          NavigationDestination(icon: Icon(Icons.storefront_outlined), selectedIcon: Icon(Icons.storefront), label: 'التجار'),
         ],
       ),
     );
