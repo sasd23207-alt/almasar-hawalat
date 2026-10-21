@@ -1,4 +1,11 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:cross_file/cross_file.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'core/money.dart';
@@ -22,16 +29,8 @@ class AlmasarApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: navy),
         scaffoldBackgroundColor: const Color(0xFFF5F7FA),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: navy,
-          foregroundColor: Colors.white,
-          centerTitle: false,
-        ),
-        inputDecorationTheme: const InputDecorationTheme(
-          border: OutlineInputBorder(),
-          filled: true,
-          fillColor: Colors.white,
-        ),
+        appBarTheme: const AppBarTheme(backgroundColor: navy, foregroundColor: Colors.white),
+        inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder(), filled: true, fillColor: Colors.white),
       ),
       home: const HomeScreen(),
     );
@@ -40,7 +39,6 @@ class AlmasarApp extends StatelessWidget {
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
-
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -51,6 +49,59 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _refresh() {
     if (mounted) setState(() => _refreshKey++);
+  }
+
+  void _message(String text) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Future<void> _exportBackup() async {
+    try {
+      final contents = await LocalDatabase.instance.exportBackup();
+      final directory = await getTemporaryDirectory();
+      final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+      final file = File('${directory.path}/almasar-backup-$stamp.json');
+      await file.writeAsString(contents, flush: true);
+      await Share.shareXFiles([XFile(file.path)], text: 'نسخة احتياطية من المسار للحوالات. احفظها في مكان آمن.');
+    } catch (error) {
+      _message('تعذر إنشاء النسخة الاحتياطية: $error');
+    }
+  }
+
+  Future<void> _restoreBackup() async {
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('استعادة نسخة احتياطية'),
+        content: const Text('تنبيه: الاستعادة تستبدل البيانات الموجودة حاليًا على هذا الجهاز ببيانات الملف المختار. أنشئ نسخة احتياطية أولًا إن كنت تحتاج البيانات الحالية.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('متابعة')),
+        ],
+      ),
+    );
+    if (approved != true || !mounted) return;
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        withData: true,
+      );
+      if (picked == null || picked.files.isEmpty) return;
+      final selected = picked.files.single;
+      final bytes = selected.bytes;
+      final path = selected.path;
+      final contents = bytes != null
+          ? utf8.decode(bytes)
+          : path != null
+              ? await File(path).readAsString()
+              : throw const FormatException('تعذر قراءة الملف المختار');
+      await LocalDatabase.instance.restoreBackup(contents);
+      _refresh();
+      _message('تمت استعادة النسخة الاحتياطية بنجاح.');
+    } catch (error) {
+      _message('لم تتم الاستعادة؛ بقيت البيانات الحالية كما هي إذا فشل التحقق: $error');
+    }
   }
 
   @override
@@ -64,17 +115,22 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('المسار للحوالات', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
-          IconButton(
-            tooltip: 'تحديث البيانات',
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh),
+          PopupMenuButton<String>(
+            tooltip: 'النسخ الاحتياطي',
+            onSelected: (value) {
+              if (value == 'backup') _exportBackup();
+              if (value == 'restore') _restoreBackup();
+              if (value == 'refresh') _refresh();
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'backup', child: ListTile(leading: Icon(Icons.backup_outlined), title: Text('إنشاء نسخة احتياطية'), contentPadding: EdgeInsets.zero)),
+              PopupMenuItem(value: 'restore', child: ListTile(leading: Icon(Icons.settings_backup_restore), title: Text('استعادة نسخة'), contentPadding: EdgeInsets.zero)),
+              PopupMenuItem(value: 'refresh', child: ListTile(leading: Icon(Icons.refresh), title: Text('تحديث البيانات'), contentPadding: EdgeInsets.zero)),
+            ],
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _tab,
-        children: pages,
-      ),
+      body: IndexedStack(index: _tab, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (value) => setState(() => _tab = value),
@@ -94,17 +150,10 @@ class DashboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder(
-      future: Future.wait([
-        LocalDatabase.instance.getSummary(),
-        LocalDatabase.instance.getTransfers(limit: 8),
-      ]),
+      future: Future.wait([LocalDatabase.instance.getSummary(), LocalDatabase.instance.getTransfers(limit: 8)]),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return ErrorPanel(message: 'تعذر فتح قاعدة البيانات المحلية: ${snapshot.error}');
-        }
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError) return ErrorPanel(message: 'تعذر فتح قاعدة البيانات المحلية: ${snapshot.error}');
         final summary = snapshot.data![0] as Map<String, int>;
         final transfers = snapshot.data![1] as List<Map<String, Object?>>;
         return ListView(
@@ -113,41 +162,30 @@ class DashboardScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF142B4A), Color(0xFF294D75)],
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
-                ),
+                gradient: const LinearGradient(colors: [Color(0xFF142B4A), Color(0xFF294D75)], begin: Alignment.topRight, end: Alignment.bottomLeft),
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.account_balance_wallet_outlined, color: Colors.white, size: 34),
-                  SizedBox(height: 14),
-                  Text('إدارة الحوالات والعملاء', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                  SizedBox(height: 6),
-                  Text('تُحفظ البيانات على هذا الجهاز داخل قاعدة بيانات محلية.', style: TextStyle(color: Colors.white70, height: 1.5)),
-                ],
-              ),
+              child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.account_balance_wallet_outlined, color: Colors.white, size: 34),
+                SizedBox(height: 14),
+                Text('إدارة الحوالات والعملاء', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                SizedBox(height: 6),
+                Text('البيانات محفوظة محليًا على هذا الجهاز. استخدم القائمة بالأعلى لإنشاء نسخة احتياطية.', style: TextStyle(color: Colors.white70, height: 1.5)),
+              ]),
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(child: StatCard(title: 'العملاء', value: '${summary['customers']}', icon: Icons.people_alt_outlined)),
-                const SizedBox(width: 12),
-                Expanded(child: StatCard(title: 'العمليات', value: '${summary['transfers']}', icon: Icons.receipt_long_outlined)),
-              ],
-            ),
+            Row(children: [
+              Expanded(child: StatCard(title: 'العملاء', value: '${summary['customers']}', icon: Icons.people_alt_outlined)),
+              const SizedBox(width: 12),
+              Expanded(child: StatCard(title: 'العمليات', value: '${summary['transfers']}', icon: Icons.receipt_long_outlined)),
+            ]),
             const SizedBox(height: 24),
             const Text('أحدث العمليات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            if (transfers.isEmpty)
-              const EmptyPanel(message: 'لا توجد عمليات بعد. أضف عميلًا ثم سجّل أول عملية.')
-            else
-              ...transfers.map((item) => TransferTile(item: item)),
+            if (transfers.isEmpty) const EmptyPanel(message: 'لا توجد عمليات بعد. أضف عميلًا ثم سجّل أول عملية.')
+            else ...transfers.map((item) => TransferTile(item: item)),
             const SizedBox(height: 12),
-            const Text('تنبيه: هذه النسخة تحفظ البيانات على هذا الجهاز فقط. لم تتم إضافة المزامنة بين الأجهزة أو النسخ الاحتياطي بعد.', style: TextStyle(color: Colors.black54, height: 1.5)),
+            const Text('واتساب هنا يفتح رسالة جاهزة لتراجعها وترسلها يدويًا. الإرسال الآلي عبر WhatsApp Business API غير مربوط في هذه النسخة.', style: TextStyle(color: Colors.black54, height: 1.5)),
           ],
         );
       },
@@ -162,29 +200,23 @@ class StatCard extends StatelessWidget {
   final IconData icon;
 
   @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 12),
-            Text(value, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-            Text(title, style: const TextStyle(color: Colors.black54)),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Card(
+    elevation: 0,
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(height: 12),
+        Text(value, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+        Text(title, style: const TextStyle(color: Colors.black54)),
+      ]),
+    ),
+  );
 }
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key, required this.onChanged});
   final VoidCallback onChanged;
-
   @override
   State<CustomersScreen> createState() => _CustomersScreenState();
 }
@@ -193,10 +225,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
   String _search = '';
 
   Future<void> _addCustomer() async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => const AddCustomerDialog(),
-    );
+    final result = await showDialog<bool>(context: context, builder: (context) => const AddCustomerDialog());
     if (result == true && mounted) {
       setState(() {});
       widget.onChanged();
@@ -204,63 +233,45 @@ class _CustomersScreenState extends State<CustomersScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addCustomer,
-        icon: const Icon(Icons.person_add_alt_1),
-        label: const Text('إضافة عميل'),
-      ),
-      body: FutureBuilder<List<Map<String, Object?>>>(
-        future: LocalDatabase.instance.getCustomers(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError) return ErrorPanel(message: 'تعذر تحميل العملاء: ${snapshot.error}');
-          final customers = snapshot.data!.where((customer) {
-            final name = (customer['name'] as String).toLowerCase();
-            final phone = (customer['phone'] as String).toLowerCase();
-            final query = _search.toLowerCase();
-            return name.contains(query) || phone.contains(query);
-          }).toList();
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
-            children: [
-              TextField(
-                decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'ابحث بالاسم أو رقم الهاتف'),
-                onChanged: (value) => setState(() => _search = value.trim()),
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.transparent,
+    floatingActionButton: FloatingActionButton.extended(onPressed: _addCustomer, icon: const Icon(Icons.person_add_alt_1), label: const Text('إضافة عميل')),
+    body: FutureBuilder<List<Map<String, Object?>>>(
+      future: LocalDatabase.instance.getCustomers(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError) return ErrorPanel(message: 'تعذر تحميل العملاء: ${snapshot.error}');
+        final customers = snapshot.data!.where((customer) {
+          final query = _search.toLowerCase();
+          return (customer['name'] as String).toLowerCase().contains(query) || (customer['phone'] as String).toLowerCase().contains(query);
+        }).toList();
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
+          children: [
+            TextField(decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'ابحث بالاسم أو رقم الهاتف'), onChanged: (value) => setState(() => _search = value.trim())),
+            const SizedBox(height: 12),
+            if (customers.isEmpty) const EmptyPanel(message: 'لا يوجد عملاء مطابقون. يمكنك إضافة عميل جديد.')
+            else ...customers.map((customer) => Card(
+              elevation: 0,
+              child: ListTile(
+                leading: CircleAvatar(child: Text((customer['name'] as String).isNotEmpty ? (customer['name'] as String).characters.first : '؟')),
+                title: Text(customer['name'] as String, style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text((customer['phone'] as String).isEmpty ? 'لا يوجد رقم هاتف' : customer['phone'] as String),
+                trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Text(formatMinor(customer['balance_minor'] as int, customer['currency'] as String), style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(customer['currency'] as String, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+                ]),
               ),
-              const SizedBox(height: 12),
-              if (customers.isEmpty)
-                const EmptyPanel(message: 'لا يوجد عملاء مطابقون. يمكنك إضافة عميل جديد.')
-              else
-                ...customers.map((customer) => Card(
-                  elevation: 0,
-                  child: ListTile(
-                    leading: CircleAvatar(child: Text((customer['name'] as String).isNotEmpty ? (customer['name'] as String).characters.first : '؟')),
-                    title: Text(customer['name'] as String, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text((customer['phone'] as String).isEmpty ? 'لا يوجد رقم هاتف' : customer['phone'] as String),
-                    trailing: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(formatMinor(customer['balance_minor'] as int, customer['currency'] as String), style: const TextStyle(fontWeight: FontWeight.bold)),
-                        Text(customer['currency'] as String, style: const TextStyle(fontSize: 11, color: Colors.black54)),
-                      ],
-                    ),
-                  ),
-                )),
-            ],
-          );
-        },
-      ),
-    );
-  }
+            )),
+          ],
+        );
+      },
+    ),
+  );
 }
 
 class AddCustomerDialog extends StatefulWidget {
   const AddCustomerDialog({super.key});
-
   @override
   State<AddCustomerDialog> createState() => _AddCustomerDialogState();
 }
@@ -292,45 +303,37 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('إضافة عميل جديد'),
-      content: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(controller: _name, autofocus: true, decoration: const InputDecoration(labelText: 'اسم العميل'), validator: (value) => value == null || value.trim().isEmpty ? 'اكتب اسم العميل' : null),
-              const SizedBox(height: 12),
-              TextFormField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم واتساب الدولي', hintText: 'مثال: 2189xxxxxxx')),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _currency,
-                decoration: const InputDecoration(labelText: 'عملة الحساب'),
-                items: const [
-                  DropdownMenuItem(value: 'LYD', child: Text('دينار ليبي (LYD)')),
-                  DropdownMenuItem(value: 'USD', child: Text('دولار أمريكي (USD)')),
-                  DropdownMenuItem(value: 'EUR', child: Text('يورو (EUR)')),
-                ],
-                onChanged: (value) => setState(() => _currency = value ?? 'LYD'),
-              ),
-            ],
-          ),
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('إضافة عميل جديد'),
+    content: Form(
+      key: _formKey,
+      child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextFormField(controller: _name, autofocus: true, decoration: const InputDecoration(labelText: 'اسم العميل'), validator: (value) => value == null || value.trim().isEmpty ? 'اكتب اسم العميل' : null),
+        const SizedBox(height: 12),
+        TextFormField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم واتساب الدولي', hintText: 'مثال: 2189xxxxxxx')),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          value: _currency,
+          decoration: const InputDecoration(labelText: 'عملة الحساب'),
+          items: const [
+            DropdownMenuItem(value: 'LYD', child: Text('دينار ليبي (LYD)')),
+            DropdownMenuItem(value: 'USD', child: Text('دولار أمريكي (USD)')),
+            DropdownMenuItem(value: 'EUR', child: Text('يورو (EUR)')),
+          ],
+          onChanged: (value) => setState(() => _currency = value ?? 'LYD'),
         ),
-      ),
-      actions: [
-        TextButton(onPressed: _saving ? null : () => Navigator.pop(context, false), child: const Text('إلغاء')),
-        FilledButton(onPressed: _saving ? null : _save, child: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('حفظ العميل')),
-      ],
-    );
-  }
+      ])),
+    ),
+    actions: [
+      TextButton(onPressed: _saving ? null : () => Navigator.pop(context, false), child: const Text('إلغاء')),
+      FilledButton(onPressed: _saving ? null : _save, child: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('حفظ العميل')),
+    ],
+  );
 }
 
 class TransfersScreen extends StatefulWidget {
   const TransfersScreen({super.key, required this.onChanged});
   final VoidCallback onChanged;
-
   @override
   State<TransfersScreen> createState() => _TransfersScreenState();
 }
@@ -342,35 +345,24 @@ class _TransfersScreenState extends State<TransfersScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addTransfer,
-        icon: const Icon(Icons.add_card),
-        label: const Text('تسجيل عملية'),
-      ),
-      body: FutureBuilder<List<Map<String, Object?>>>(
-        future: LocalDatabase.instance.getTransfers(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError) return ErrorPanel(message: 'تعذر تحميل العمليات: ${snapshot.error}');
-          final transfers = snapshot.data!;
-          if (transfers.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: EmptyPanel(message: 'لا توجد حوالات أو عمليات مسجلة حتى الآن.'));
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
-            itemCount: transfers.length,
-            itemBuilder: (context, index) => TransferTile(item: transfers[index], onChanged: widget.onChanged),
-          );
-        },
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.transparent,
+    floatingActionButton: FloatingActionButton.extended(onPressed: _addTransfer, icon: const Icon(Icons.add_card), label: const Text('تسجيل عملية')),
+    body: FutureBuilder<List<Map<String, Object?>>>(
+      future: LocalDatabase.instance.getTransfers(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError) return ErrorPanel(message: 'تعذر تحميل العمليات: ${snapshot.error}');
+        final transfers = snapshot.data!;
+        if (transfers.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: EmptyPanel(message: 'لا توجد حوالات أو عمليات مسجلة حتى الآن.'));
+        return ListView.builder(padding: const EdgeInsets.fromLTRB(16, 16, 16, 90), itemCount: transfers.length, itemBuilder: (context, index) => TransferTile(item: transfers[index], onChanged: widget.onChanged));
+      },
+    ),
+  );
 }
 
 class AddTransferDialog extends StatefulWidget {
   const AddTransferDialog({super.key});
-
   @override
   State<AddTransferDialog> createState() => _AddTransferDialogState();
 }
@@ -425,75 +417,54 @@ class _AddTransferDialogState extends State<AddTransferDialog> {
     }
     setState(() { _saving = true; _error = null; });
     try {
-      final reference = await LocalDatabase.instance.addTransfer(
-        customerId: _customerId!,
-        kind: _kind,
-        amountMinor: minor,
-        note: _note.text,
-      );
+      await LocalDatabase.instance.addTransfer(customerId: _customerId!, kind: _kind, amountMinor: minor, note: _note.text);
       if (mounted) Navigator.pop(context, true);
-      // The reference is stored with the operation and can be found in the history.
-      debugPrint('Saved local transfer $reference');
     } catch (error) {
       if (mounted) setState(() { _saving = false; _error = error.toString(); });
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('تسجيل عملية مالية'),
-      content: SizedBox(
-        width: 420,
-        child: _loading
-            ? const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
-            : _customers.isEmpty
-                ? const Text('أضف عميلًا أولًا حتى تتمكن من تسجيل عملية.')
-                : Form(
-                    key: _formKey,
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          DropdownButtonFormField<int>(
-                            value: _customerId,
-                            decoration: const InputDecoration(labelText: 'العميل'),
-                            items: _customers.map((customer) => DropdownMenuItem<int>(
-                              value: customer['id'] as int,
-                              child: Text('${customer['name']} — ${customer['currency']}'),
-                            )).toList(),
-                            onChanged: (value) => setState(() => _customerId = value),
-                          ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            value: _kind,
-                            decoration: const InputDecoration(labelText: 'نوع العملية'),
-                            items: const [
-                              DropdownMenuItem(value: 'deposit', child: Text('إيداع / استلام')),
-                              DropdownMenuItem(value: 'withdrawal', child: Text('صرف / إرسال')),
-                            ],
-                            onChanged: (value) => setState(() => _kind = value ?? 'deposit'),
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(controller: _amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'المبلغ', hintText: '0.000'), validator: (value) => value == null || value.trim().isEmpty ? 'اكتب المبلغ' : null),
-                          const SizedBox(height: 12),
-                          TextFormField(controller: _note, decoration: const InputDecoration(labelText: 'ملاحظة (اختياري)')),
-                          if (_error != null) ...[
-                            const SizedBox(height: 10),
-                            Text(_error!, style: const TextStyle(color: Colors.red)),
-                          ],
-                        ],
-                      ),
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('تسجيل عملية مالية'),
+    content: SizedBox(
+      width: 420,
+      child: _loading
+          ? const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+          : _customers.isEmpty
+              ? const Text('أضف عميلًا أولًا حتى تتمكن من تسجيل عملية.')
+              : Form(
+                  key: _formKey,
+                  child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    DropdownButtonFormField<int>(
+                      value: _customerId,
+                      decoration: const InputDecoration(labelText: 'العميل'),
+                      items: _customers.map((customer) => DropdownMenuItem<int>(value: customer['id'] as int, child: Text('${customer['name']} — ${customer['currency']}'))).toList(),
+                      onChanged: (value) => setState(() => _customerId = value),
                     ),
-                  ),
-      ),
-      actions: [
-        TextButton(onPressed: _saving ? null : () => Navigator.pop(context, false), child: const Text('إلغاء')),
-        if (!_loading && _customers.isNotEmpty)
-          FilledButton(onPressed: _saving ? null : _save, child: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('حفظ العملية')),
-      ],
-    );
-  }
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: _kind,
+                      decoration: const InputDecoration(labelText: 'نوع العملية'),
+                      items: const [
+                        DropdownMenuItem(value: 'deposit', child: Text('إيداع / استلام')),
+                        DropdownMenuItem(value: 'withdrawal', child: Text('صرف / إرسال')),
+                      ],
+                      onChanged: (value) => setState(() => _kind = value ?? 'deposit'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(controller: _amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'المبلغ', hintText: '0.000'), validator: (value) => value == null || value.trim().isEmpty ? 'اكتب المبلغ' : null),
+                    const SizedBox(height: 12),
+                    TextFormField(controller: _note, decoration: const InputDecoration(labelText: 'ملاحظة (اختياري)')),
+                    if (_error != null) ...[const SizedBox(height: 10), Text(_error!, style: const TextStyle(color: Colors.red))],
+                  ])),
+    ),
+    actions: [
+      TextButton(onPressed: _saving ? null : () => Navigator.pop(context, false), child: const Text('إلغاء')),
+      if (!_loading && _customers.isNotEmpty)
+        FilledButton(onPressed: _saving ? null : _save, child: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('حفظ العملية')),
+    ],
+  );
 }
 
 class TransferTile extends StatelessWidget {
@@ -519,9 +490,7 @@ class TransferTile extends StatelessWidget {
     final uri = Uri.https('wa.me', '/$phone', {'text': message});
     try {
       final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!launched && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر فتح واتساب على هذا الجهاز.')));
-      }
+      if (!launched && context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر فتح واتساب على هذا الجهاز.')));
     } catch (error) {
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر فتح واتساب: $error')));
     }
@@ -545,16 +514,12 @@ class TransferTile extends StatelessWidget {
           title: Text(item['customer_name'] as String, style: const TextStyle(fontWeight: FontWeight.bold)),
           subtitle: Text('${item['reference']}\n$dateText${(item['note'] as String).isEmpty ? '' : '\n${item['note']}'}'),
           isThreeLine: (item['note'] as String).isNotEmpty,
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text('${isDeposit ? '+' : '−'}${formatMinor(item['amount_minor'] as int, item['currency'] as String)}', style: TextStyle(fontWeight: FontWeight.bold, color: isDeposit ? Colors.green.shade800 : Colors.deepOrange.shade800)),
-              Text(item['currency'] as String, style: const TextStyle(fontSize: 11, color: Colors.black54)),
-              if (onChanged != null)
-                InkWell(onTap: () => _openWhatsApp(context), child: const Padding(padding: EdgeInsets.only(top: 4), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.chat, size: 15, color: Color(0xFF168A52)), SizedBox(width: 3), Text('واتساب', style: TextStyle(fontSize: 11, color: Color(0xFF168A52)))]))),
-            ],
-          ),
+          trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text('${isDeposit ? '+' : '−'}${formatMinor(item['amount_minor'] as int, item['currency'] as String)}', style: TextStyle(fontWeight: FontWeight.bold, color: isDeposit ? Colors.green.shade800 : Colors.deepOrange.shade800)),
+            Text(item['currency'] as String, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+            if (onChanged != null)
+              InkWell(onTap: () => _openWhatsApp(context), child: const Padding(padding: EdgeInsets.only(top: 4), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.chat, size: 15, color: Color(0xFF168A52)), SizedBox(width: 3), Text('واتساب', style: TextStyle(fontSize: 11, color: Color(0xFF168A52)))]))),
+          ]),
         ),
       ),
     );
@@ -562,41 +527,29 @@ class TransferTile extends StatelessWidget {
 }
 
 String formatMinor(int minor, String currency) {
-  try {
-    return fromMinorUnits(minor, currency);
-  } catch (_) {
-    return minor.toString();
-  }
+  try { return fromMinorUnits(minor, currency); } catch (_) { return minor.toString(); }
 }
 
 class EmptyPanel extends StatelessWidget {
   const EmptyPanel({super.key, required this.message});
   final String message;
-
   @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            const Icon(Icons.inbox_outlined, size: 36, color: Colors.black38),
-            const SizedBox(height: 10),
-            Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.black54, height: 1.5)),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Card(
+    elevation: 0,
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(children: [
+        const Icon(Icons.inbox_outlined, size: 36, color: Colors.black38),
+        const SizedBox(height: 10),
+        Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.black54, height: 1.5)),
+      ]),
+    ),
+  );
 }
 
 class ErrorPanel extends StatelessWidget {
   const ErrorPanel({super.key, required this.message});
   final String message;
-
   @override
-  Widget build(BuildContext context) {
-    return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))));
-  }
+  Widget build(BuildContext context) => Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red))));
 }
