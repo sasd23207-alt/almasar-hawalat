@@ -1,0 +1,25 @@
+{
+  "_note": "Shared by the Python reference and the Dart implementation. Both must agree on every case.",
+  "to_minor_valid": [
+    {"amount": "5000.5", "currency": "LYD", "minor": 5000500},
+    {"amount": "10", "currency": "USD", "minor": 1000},
+    {"amount": "10.50", "currency": "USD", "minor": 1050},
+    {"amount": "10.500", "currency": "USD", "minor": 1050},
+    {"amount": "0.001", "currency": "LYD", "minor": 1},
+    {"amount": "1000000", "currency": "EUR", "minor": 100000000}
+  ],
+  "to_minor_invalid": [
+    {"amount": "10.001", "currency": "USD"},
+    {"amount": "0", "currency": "USD"},
+    {"amount": "abc", "currency": "USD"},
+    {"amount": "-5", "currency": "USD"},
+    {"amount": "1,000", "currency": "USD"},
+    {"amount": "10", "currency": "XYZ"}
+  ],
+  "from_minor": [
+    {"minor": 5000500, "currency": "LYD", "text": "5000.500"},
+    {"minor": 1000, "currency": "USD", "text": "10.00"},
+    {"minor": 5, "currency": "LYD", "text": "0.005"},
+    {"minor": -6000000, "currency": "LYD", "text": "-6000.000"}
+  ]
+}

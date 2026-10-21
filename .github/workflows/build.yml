@@ -1,0 +1,47 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # The android/ folder is generated here for now. Later it is committed,
+      # because we will need to edit its manifest (share target, permissions).
+      - name: Generate Android project files
+        run: flutter create --platforms=android --org com.almasar --project-name almasar_hawalat .
+
+      # flutter create adds a sample counter-app test that does not match our app.
+      - name: Remove the generated sample test
+        run: rm -f test/widget_test.dart
+
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+      - run: flutter build apk --debug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: almasar-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+
+      # Download link: a GitHub Release holding the APK (only for the main branch).
+      - name: Publish the APK as a release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          files: build/app/outputs/flutter-apk/app-debug.apk
