@@ -192,11 +192,13 @@ class _ReviewImportScreenState extends State<_ReviewImportScreen> {
         final row = entry.key;
         final amountMinor = entry.value;
         final currency = row.currency!;
-        final keyText = '${widget.details.name.toLowerCase()}|'
+        // Identity is based on the original source message, not editable
+        // review fields. Changing an amount/currency/direction during review
+        // must not make the same imported message look like a new transaction.
+        final keyText = '${widget.details.name.trim().toLowerCase()}|'
             '${row.candidate.dateText ?? ''}|'
-            '${row.candidate.sender ?? ''}|'
-            '${row.candidate.message.trim()}|'
-            '${amountMinor}|$currency|${row.direction}';
+            '${(row.candidate.sender ?? '').trim()}|'
+            '${row.candidate.message.replaceAll('\\r\\n', '\\n').trim()}';
         payload.add({
           'merchant_id': merchantId,
           'source_key': base64Url.encode(utf8.encode(keyText)),
