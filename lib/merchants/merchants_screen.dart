@@ -332,6 +332,9 @@ String? _parseDate(String? raw) {
       day = int.parse(match.group(1)!);
       month = int.parse(match.group(2)!);
       year = int.parse(match.group(3)!);
+      // When both day and month are <= 12, a numeric date is locale-ambiguous.
+      // Preserve the original message and leave the ledger date unset rather than guessing.
+      if (day <= 12 && month <= 12) return null;
       if (year < 100) year += year >= 70 ? 1900 : 2000;
     }
     final date = DateTime.utc(year, month, day);
