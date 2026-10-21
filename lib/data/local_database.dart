@@ -338,6 +338,7 @@ class LocalDatabase {
     if (decoded is! Map<String, dynamic> ||
         decoded['format'] != 'almasar_hawalat_backup' ||
         !{1, 2}.contains(decoded['schema_version']) ||
+        (decoded['schema_version'] == 2 && (decoded['merchants'] is! List || decoded['merchant_transactions'] is! List)) ||
         decoded['customers'] is! List ||
         decoded['transfers'] is! List) {
       throw const FormatException('ملف النسخة الاحتياطية غير معروف أو غير مدعوم');
