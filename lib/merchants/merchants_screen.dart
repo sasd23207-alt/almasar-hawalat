@@ -198,7 +198,7 @@ class _ReviewImportScreenState extends State<_ReviewImportScreen> {
         final keyText = '${widget.details.name.trim().toLowerCase()}|'
             '${row.candidate.dateText ?? ''}|'
             '${(row.candidate.sender ?? '').trim()}|'
-            '${row.candidate.message.replaceAll('\\r\\n', '\\n').trim()}';
+            '${row.candidate.message.replaceAll('\r\n', '\n').trim()}';
         payload.add({
           'merchant_id': merchantId,
           'source_key': base64Url.encode(utf8.encode(keyText)),
