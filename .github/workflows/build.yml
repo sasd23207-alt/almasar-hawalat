@@ -49,3 +49,13 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Build ${{ github.run_number }}
           files: build/app/outputs/flutter-apk/app-debug.apk
+
+      # Test-only APK from the development branch; never use for real financial data.
+      - name: Publish development APK as a test prerelease
+        if: github.ref == 'refs/heads/feature/local-database-mobile-app'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test-build-${{ github.run_number }}
+          name: Test build ${{ github.run_number }}
+          prerelease: true
+          files: build/app/outputs/flutter-apk/app-debug.apk
