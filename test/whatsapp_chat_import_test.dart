@@ -6,6 +6,7 @@ void main() {
     test('recognizes Arabic transfer phrase, Arabic digits, and LYD', () {
       final rows = WhatsAppChatParser.parse(
         '21/10/2026, 10:30 - Salem: حولت لك ١٥٠ دينار ليبي',
+        accountOwnerName: 'Salem', traderSenderName: 'Trader',
       );
       expect(rows, hasLength(1));
       expect(rows.single.amountText, '150');
@@ -17,6 +18,7 @@ void main() {
     test('recognizes sent-to-me phrase and USD', () {
       final rows = WhatsAppChatParser.parse(
         '2026-10-20, 12:00 - Trader: أرسلت لي 250 USD',
+        accountOwnerName: 'Salem', traderSenderName: 'Trader',
       );
       expect(rows, hasLength(1));
       expect(rows.single.amountText, '250');
@@ -37,6 +39,7 @@ void main() {
     test('recognizes common Libyan phrase بعثت لك and keeps currency explicit', () {
       final rows = WhatsAppChatParser.parse(
         '21/10/2026, 11:15 - Salem: بعثت لك 1,250.500 د.ل',
+        accountOwnerName: 'Salem', traderSenderName: 'Trader',
       );
       expect(rows, hasLength(1));
       expect(rows.single.amountText, '1250.500');
@@ -56,6 +59,7 @@ void main() {
     test('normalizes Persian digits and preserves the explicit currency', () {
       final rows = WhatsAppChatParser.parse(
         '21/10/2026, 11:25 - Salem: أرسلت لك ۷۵ USD',
+        accountOwnerName: 'Salem', traderSenderName: 'Trader',
       );
       expect(rows, hasLength(1));
       expect(rows.single.amountText, '75');
@@ -65,6 +69,7 @@ void main() {
     test('prefers currency-linked amount over an earlier transfer reference number', () {
       final rows = WhatsAppChatParser.parse(
         '21/10/2026, 11:40 - Salem: تم التحويل رقم 12345 بمبلغ 200 USD لك',
+        accountOwnerName: 'Salem', traderSenderName: 'Trader',
       );
       expect(rows, hasLength(1));
       expect(rows.single.amountText, '200');
@@ -102,6 +107,7 @@ void main() {
     test('recognizes iPhone-style bracketed export with seconds and AM/PM', () {
       final rows = WhatsAppChatParser.parse(
         '[10/21/26, 10:30:45 AM] Salem: حولت لك ١٥٠ دينار ليبي',
+        accountOwnerName: 'Salem', traderSenderName: 'Trader',
       );
       expect(rows, hasLength(1));
       expect(rows.single.amountText, '150');
@@ -113,6 +119,7 @@ void main() {
     test('recognizes ISO export timestamp with seconds', () {
       final rows = WhatsAppChatParser.parse(
         '2026-10-20, 12:00:30 - Trader: أرسلت لي 250 USD',
+        accountOwnerName: 'Salem', traderSenderName: 'Trader',
       );
       expect(rows, hasLength(1));
       expect(rows.single.amountText, '250');
@@ -123,6 +130,25 @@ void main() {
     test('does not infer a direction from a generic payment statement', () {
       final rows = WhatsAppChatParser.parse(
         '21/10/2026, 11:48 - Salem: تم تحويل مبلغ 90 USD',
+      );
+      expect(rows, hasLength(1));
+      expect(rows.single.direction, 'review');
+      expect(rows.single.confidence, 'review');
+    });
+
+    test('reverses direction when the trader authored the message', () {
+      final rows = WhatsAppChatParser.parse(
+        '21/10/2026, 11:49 - Trader: حولت لك 90 USD',
+        accountOwnerName: 'Salem', traderSenderName: 'Trader',
+      );
+      expect(rows, hasLength(1));
+      expect(rows.single.direction, 'received_from_trader');
+    });
+
+    test('does not infer direction when sender is neither configured participant', () {
+      final rows = WhatsAppChatParser.parse(
+        '21/10/2026, 11:50 - Unknown: حولت لك 90 USD',
+        accountOwnerName: 'Salem', traderSenderName: 'Trader',
       );
       expect(rows, hasLength(1));
       expect(rows.single.direction, 'review');
