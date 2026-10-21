@@ -179,6 +179,39 @@ class LocalDatabase {
     }
   }
 
+  /// Imports a reviewed batch atomically. Validation errors roll back the entire batch;
+  /// duplicate source keys are ignored without duplicating ledger rows.
+  Future<Map<String, int>> addMerchantTransactionsBatch(List<Map<String, Object?>> rows) async {
+    for (final row in rows) {
+      if (row['merchant_id'] is! int ||
+          row['source_key'] is! String || (row['source_key'] as String).isEmpty ||
+          row['original_message'] is! String ||
+          row['amount_minor'] is! int || (row['amount_minor'] as int) <= 0 ||
+          !supportedCurrencies.contains(row['currency']) ||
+          !{'paid_to_trader', 'received_from_trader'}.contains(row['direction'])) {
+        throw ArgumentError('توجد عملية غير صالحة؛ لم يتم حفظ الدفعة');
+      }
+    }
+    final db = await database;
+    var inserted = 0;
+    var duplicates = 0;
+    await db.transaction((txn) async {
+      for (final row in rows) {
+        final result = await txn.insert(
+          'merchant_transactions',
+          row,
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        if (result == -1) {
+          duplicates++;
+        } else {
+          inserted++;
+        }
+      }
+    });
+    return {'inserted': inserted, 'duplicates': duplicates};
+  }
+
   Future<List<Map<String, Object?>>> getCustomers() async {
     final db = await database;
     return db.query('customers', orderBy: 'name COLLATE NOCASE ASC');
