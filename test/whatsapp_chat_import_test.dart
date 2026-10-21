@@ -80,6 +80,24 @@ void main() {
       expect(rows.single.confidence, 'review');
     });
 
+    test('flags a second fee amount even when only the transfer has a currency', () {
+      final rows = WhatsAppChatParser.parse(
+        '21/10/2026, 11:46 - Salem: حولت لك 100 USD عمولة 20',
+      );
+      expect(rows, hasLength(1));
+      expect(rows.single.direction, 'review');
+      expect(rows.single.confidence, 'review');
+    });
+
+    test('does not choose a direction when one message contains both directions', () {
+      final rows = WhatsAppChatParser.parse(
+        '21/10/2026, 11:47 - Salem: حولت لك 100 USD ثم استلمت منك 50 USD',
+      );
+      expect(rows, hasLength(1));
+      expect(rows.single.direction, 'review');
+      expect(rows.single.confidence, 'review');
+    });
+
     test('ignores ordinary messages with no money context', () {
       expect(
         WhatsAppChatParser.parse('21/10/2026, 10:30 - Salem: تمام شكرا'),
