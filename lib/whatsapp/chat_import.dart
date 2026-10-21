@@ -171,8 +171,8 @@ String? parseWhatsAppDate(String? raw) {
   for (var i = 0; i < 10; i++) {
     value = value.replaceAll(arabic[i], '$i').replaceAll(persian[i], '$i');
   }
-  final iso = RegExp(r'(\\d{4})-(\\d{1,2})-(\\d{1,2})').firstMatch(value);
-  final numeric = RegExp(r'(\\d{1,2})[/-](\\d{1,2})[/-](\\d{2,4})').firstMatch(value);
+  final iso = RegExp(r'(\d{4})-(\\d{1,2})-(\\d{1,2})').firstMatch(value);
+  final numeric = RegExp(r'(\d{1,2})[/-](\\d{1,2})[/-](\\d{2,4})').firstMatch(value);
   int year;
   int month;
   int day;
