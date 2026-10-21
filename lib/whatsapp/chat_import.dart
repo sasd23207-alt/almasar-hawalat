@@ -68,16 +68,25 @@ class WhatsAppChatParser {
     for (final item in messages) {
       final body = item['body'] ?? '';
       if (!_moneyContext.hasMatch(body)) continue;
-      final amountMatch = _amount.firstMatch(body);
-      if (amountMatch == null) continue;
+      final amountMatches = _amount.allMatches(body).toList();
+      if (amountMatches.isEmpty) continue;
+      // Prefer a number explicitly tied to a currency; do not accidentally treat
+      // a transfer/reference number earlier in the message as the money amount.
+      final currencyMatches = amountMatches.where((match) =>
+        _currency(match.group(1)) != null || _currency(match.group(3)) != null
+      ).toList();
+      final selectedMatches = currencyMatches.isNotEmpty ? currencyMatches : amountMatches;
+      final amountMatch = selectedMatches.first;
       final amountText = _normalizeDigits(amountMatch.group(2) ?? '');
       if (amountText.isEmpty || double.tryParse(amountText.replaceAll(',', '').replaceAll('٬', '').replaceAll('٫', '.')) == null) continue;
       final currency = _currency(amountMatch.group(1)) ?? _currency(amountMatch.group(3));
-      final direction = _paid.hasMatch(body)
+      final multipleExplicitAmounts = currencyMatches.length > 1;
+      final detectedDirection = _paid.hasMatch(body)
           ? 'paid_to_trader'
           : _received.hasMatch(body)
               ? 'received_from_trader'
               : 'review';
+      final direction = multipleExplicitAmounts ? 'review' : detectedDirection;
       results.add(WhatsAppCandidate(
         dateText: item['date'],
         sender: item['sender'],
