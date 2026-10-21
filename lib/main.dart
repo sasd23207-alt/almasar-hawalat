@@ -456,7 +456,7 @@ class _AddTransferDialogState extends State<AddTransferDialog> {
                     const SizedBox(height: 12),
                     TextFormField(controller: _note, decoration: const InputDecoration(labelText: 'ملاحظة (اختياري)')),
                     if (_error != null) ...[const SizedBox(height: 10), Text(_error!, style: const TextStyle(color: Colors.red))],
-                  ])),
+                  ]))),
     ),
     actions: [
       TextButton(onPressed: _saving ? null : () => Navigator.pop(context, false), child: const Text('إلغاء')),
