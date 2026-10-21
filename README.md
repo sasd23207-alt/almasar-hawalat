@@ -1,18 +1,37 @@
-# Almasar Hawalat - build pipeline proof
+# المسار للحوالات — المرحلة الحالية
 
-STATUS: written only. Never run. The first run on GitHub is the test.
+## الحالة الحالية
 
-## What happens
-Every push to the main branch starts the "build" workflow (Actions tab):
-tests, then an Android APK, then a Release page with a download link.
+**[PARTIAL] أساس تقني أولي، وليس تطبيق الحوالات المكتمل.**
 
-## What you do
-- Green run: open the "Releases" page of this repository, download the APK on an
-  Android phone, allow "install unknown apps", and install it.
-- Red run: open the failed step and send the error text as is.
+الموجود حاليًا:
+- شاشة Flutter أولية لإثبات أن مشروع Android يمكن بناؤه.
+- دوال تحويل المبالغ إلى وحدات صحيحة صغيرة وعرضها من جديد.
+- اختبارات للحالات الأساسية، واختبارات إضافية للحالات الحدّية والتحويل ذهابًا وإيابًا.
+- سير عمل GitHub Actions لتحليل الكود وتشغيل الاختبارات وبناء APK تجريبي.
 
-## Warning
-This is a DEBUG build signed with a temporary key. Every build has a different
-signature, so a new build cannot be installed over the old one without
-uninstalling it first (which erases the app data). Do not keep real data in it.
-A permanent signing key must be set up before real use.
+غير المنفذ أو غير المثبت حتى الآن:
+- واجهة المنتج الفعلية وإدارة الحسابات والحوالات.
+- قاعدة بيانات دائمة، وسجل عمليات، ونسخ احتياطي واستعادة.
+- استيراد المحادثات واستخراج البيانات منها، إن كان ذلك ضمن متطلبات المنتج.
+- الصلاحيات والحماية اللازمة للبيانات المالية.
+- اختبار APK على أجهزة فعلية.
+- توقيع إصدار دائم وآمن.
+
+## التحقق عبر GitHub Actions
+
+كل دفع إلى المستودع يشغّل سير العمل. راجع تبويب **Actions** لمعرفة نتيجة كل خطوة؛ لا تعتبر البناء ناجحًا إلا بعد اكتمال جميع الخطوات بنجاح. الاختبارات الآلية لا تثبت وحدها أن التطبيق مناسب للاستخدام المالي الحقيقي.
+
+## تشغيل الاختبارات محليًا
+
+بعد تثبيت Flutter:
+```sh
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --debug
+```
+
+## تحذير حول APK التجريبي
+
+سير العمل الحالي يبني APK من نوع **debug** وموقّعًا بمفتاح مؤقت. لا تستخدم هذه النسخة لحفظ بيانات مالية حقيقية. قبل التوزيع الفعلي، يلزم إعداد توقيع إصدار ثابت وآمن، واختبار التحديثات والنسخ الاحتياطي والاستعادة.
