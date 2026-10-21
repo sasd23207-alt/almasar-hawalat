@@ -51,7 +51,11 @@ class WhatsAppChatParser {
     caseSensitive: false,
   );
 
-  static List<WhatsAppCandidate> parse(String text) {
+  static List<WhatsAppCandidate> parse(
+    String text, {
+    String? accountOwnerName,
+    String? traderSenderName,
+  }) {
     final messages = <Map<String, String?>>[];
     for (final rawLine in text.replaceAll('\r\n', '\n').split('\n')) {
       final line = rawLine.trimRight();
@@ -98,11 +102,23 @@ class WhatsAppChatParser {
           currencyMatches.length > 1 || hasUnlabelledSecondaryMoney;
       final hasPaidPhrase = _paid.hasMatch(body);
       final hasReceivedPhrase = _received.hasMatch(body);
-      final detectedDirection = hasPaidPhrase == hasReceivedPhrase
-          ? 'review'
-          : hasPaidPhrase
-              ? 'paid_to_trader'
-              : 'received_from_trader';
+      // Direction is relative to the account owner, not just the wording.
+      // "I sent you" means opposite things depending on who authored the message.
+      final owner = _normalizeParticipant(accountOwnerName);
+      final trader = _normalizeParticipant(traderSenderName);
+      final sender = _normalizeParticipant(item['sender']);
+      final senderIsOwner = owner.isNotEmpty && sender == owner;
+      final senderIsTrader = trader.isNotEmpty && sender == trader;
+      var detectedDirection = 'review';
+      if (hasPaidPhrase != hasReceivedPhrase &&
+          senderIsOwner != senderIsTrader &&
+          (senderIsOwner || senderIsTrader)) {
+        if (senderIsOwner) {
+          detectedDirection = hasPaidPhrase ? 'paid_to_trader' : 'received_from_trader';
+        } else {
+          detectedDirection = hasPaidPhrase ? 'received_from_trader' : 'paid_to_trader';
+        }
+      }
       final direction = multipleExplicitAmounts ? 'review' : detectedDirection;
       results.add(WhatsAppCandidate(
         dateText: item['date'],
@@ -115,6 +131,14 @@ class WhatsAppChatParser {
       ));
     }
     return results;
+  }
+
+  static String _normalizeParticipant(String? value) {
+    if (value == null) return '';
+    return value.trim().toLowerCase()
+        .replaceAll(RegExp(r'\\s+'), ' ')
+        .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
+        .replaceAll('ى', 'ي');
   }
 
   static String _normalizeDigits(String value) {
