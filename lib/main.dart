@@ -7,6 +7,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'security/app_lock_gate.dart';
+import 'security/backup_encryption.dart';
+
 import 'core/money.dart';
 import 'data/local_database.dart';
 import 'merchants/merchants_screen.dart';
@@ -32,7 +35,7 @@ class AlmasarApp extends StatelessWidget {
         appBarTheme: const AppBarTheme(backgroundColor: navy, foregroundColor: Colors.white),
         inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder(), filled: true, fillColor: Colors.white),
       ),
-      home: const HomeScreen(),
+      home: const AppLockGate(child: HomeScreen()),
     );
   }
 }
@@ -55,16 +58,80 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
+  Future<String?> _askBackupPassphrase({required bool confirm}) async {
+    final password = TextEditingController();
+    final confirmation = TextEditingController();
+    String? error;
+    try {
+      return await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(confirm ? 'تشفير النسخة الاحتياطية' : 'فتح النسخة الاحتياطية'),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('كلمة المرور لا تُحفظ داخل التطبيق. احتفظ بها منفصلة؛ فقدانها يعني تعذر استعادة النسخة.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: password,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'كلمة المرور (10 أحرف على الأقل)'),
+              ),
+              if (confirm) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: confirmation,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'تأكيد كلمة المرور'),
+                ),
+              ],
+              if (error != null) Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(error!, style: const TextStyle(color: Colors.red)),
+              ),
+            ]),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('إلغاء')),
+              FilledButton(
+                onPressed: () {
+                  if (password.text.length < 10) {
+                    setDialogState(() => error = 'استخدم 10 أحرف على الأقل.');
+                    return;
+                  }
+                  if (confirm && confirmation.text != password.text) {
+                    setDialogState(() => error = 'كلمتا المرور غير متطابقتين.');
+                    return;
+                  }
+                  Navigator.pop(dialogContext, password.text);
+                },
+                child: const Text('متابعة'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      password.dispose();
+      confirmation.dispose();
+    }
+  }
+
   Future<void> _exportBackup() async {
+    final passphrase = await _askBackupPassphrase(confirm: true);
+    if (passphrase == null || !mounted) return;
     try {
       final contents = await LocalDatabase.instance.exportBackup();
+      final encrypted = await BackupEncryption.encrypt(contents, passphrase);
       final directory = await getTemporaryDirectory();
       final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-      final file = File('${directory.path}/almasar-backup-$stamp.json');
-      await file.writeAsString(contents, flush: true);
-      await Share.shareXFiles([XFile(file.path)], text: 'نسخة احتياطية من المسار للحوالات. احفظها في مكان آمن.');
+      final file = File('${directory.path}/almasar-backup-$stamp.encrypted.json');
+      await file.writeAsString(encrypted, flush: true);
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'نسخة احتياطية مشفرة من المسار للحوالات. احتفظ بكلمة المرور بشكل منفصل.',
+      );
     } catch (error) {
-      _message('تعذر إنشاء النسخة الاحتياطية: $error');
+      _message('تعذر إنشاء النسخة الاحتياطية المشفرة: $error');
     }
   }
 
@@ -91,14 +158,32 @@ class _HomeScreenState extends State<HomeScreen> {
       final selected = picked.files.single;
       final bytes = selected.bytes;
       final path = selected.path;
-      final contents = bytes != null
+      var contents = bytes != null
           ? utf8.decode(bytes)
           : path != null
               ? await File(path).readAsString()
               : throw const FormatException('تعذر قراءة الملف المختار');
+      if (BackupEncryption.isEncrypted(contents)) {
+        final passphrase = await _askBackupPassphrase(confirm: false);
+        if (passphrase == null || !mounted) return;
+        contents = await BackupEncryption.decrypt(contents, passphrase);
+      } else {
+        final legacyApproved = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('نسخة قديمة غير مشفرة'),
+            content: const Text('هذا الملف يحتوي بيانات بصيغة غير مشفرة. لا تشاركه أو تحفظه في مكان عام. هل تريد المتابعة بعد التحقق من مصدره؟'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('متابعة')),
+            ],
+          ),
+        );
+        if (legacyApproved != true || !mounted) return;
+      }
       await LocalDatabase.instance.restoreBackup(contents);
       _refresh();
-      _message('تمت استعادة النسخة الاحتياطية بنجاح.');
+      _message('تمت استعادة النسخة الاحتياطية بعد التحقق من سلامة السجل.');
     } catch (error) {
       _message('لم تتم الاستعادة؛ بقيت البيانات الحالية كما هي إذا فشل التحقق: $error');
     }
