@@ -232,7 +232,7 @@ class _ReviewImportScreenState extends State<_ReviewImportScreen> {
         payload.add({
           'merchant_id': merchantId,
           'source_key': base64Url.encode(utf8.encode(keyText)),
-          'transaction_date': _parseDate(row.candidate.dateText),
+          'transaction_date': parseWhatsAppDate(row.candidate.dateText),
           'sender': row.candidate.sender ?? '',
           'original_message': row.candidate.message,
           'amount_minor': amountMinor,
@@ -339,42 +339,12 @@ class _EditableCandidate {
       : amount = TextEditingController(text: candidate.amountText),
         currency = candidate.currency,
         direction = candidate.direction == 'review' ? null : candidate.direction,
-        include = candidate.confidence == 'high' && candidate.dateText != null;
+        include = candidate.confidence == 'high' && parseWhatsAppDate(candidate.dateText) != null;
   final WhatsAppCandidate candidate;
   final TextEditingController amount;
   String? currency;
   String? direction;
   bool include;
-}
-
-String? _parseDate(String? raw) {
-  if (raw == null) return null;
-  final match = RegExp(r'(\d{4})-(\d{1,2})-(\d{1,2})').firstMatch(raw) ??
-      RegExp(r'(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})').firstMatch(raw);
-  if (match == null) return null;
-  try {
-    int year;
-    int month;
-    int day;
-    if (match.group(1)!.length == 4) {
-      year = int.parse(match.group(1)!);
-      month = int.parse(match.group(2)!);
-      day = int.parse(match.group(3)!);
-    } else {
-      day = int.parse(match.group(1)!);
-      month = int.parse(match.group(2)!);
-      year = int.parse(match.group(3)!);
-      // When both day and month are <= 12, a numeric date is locale-ambiguous.
-      // Preserve the original message and leave the ledger date unset rather than guessing.
-      if (day <= 12 && month <= 12) return null;
-      if (year < 100) year += year >= 70 ? 1900 : 2000;
-    }
-    final date = DateTime.utc(year, month, day);
-    if (date.year != year || date.month != month || date.day != day) return null;
-    return date.toIso8601String();
-  } catch (_) {
-    return null;
-  }
 }
 
 class MerchantStatementScreen extends StatelessWidget {
