@@ -45,7 +45,7 @@ void validateCustomerLedger({
       throw const FormatException('عملة العملية لا تطابق عملة حساب العميل');
     }
     final signedAmount = BigInt.from(amount);
-    calculated[id] = calculated[id]! +
+    calculated[id as int] = calculated[id]! +
         (kind == 'deposit' ? signedAmount : -signedAmount);
   }
 
