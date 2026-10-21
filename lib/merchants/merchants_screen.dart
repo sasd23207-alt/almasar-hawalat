@@ -37,23 +37,39 @@ class _MerchantsScreenState extends State<MerchantsScreen> {
               : throw const FormatException('تعذرت قراءة ملف المحادثة');
       final nameController = TextEditingController();
       final phoneController = TextEditingController();
+      final ownerNameController = TextEditingController();
+      final traderSenderController = TextEditingController();
       final details = await showDialog<_ImportDetails>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('بيانات التاجر'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
             Text('الملف: ${file.name}', maxLines: 2, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 12),
-            TextField(controller: nameController, autofocus: true, decoration: const InputDecoration(labelText: 'اسم التاجر *')),
+            TextField(controller: nameController, autofocus: true, decoration: const InputDecoration(labelText: 'اسم التاجر في كشف الحساب *')),
+            const SizedBox(height: 12),
+            TextField(controller: ownerNameController, decoration: const InputDecoration(labelText: 'اسمك كما يظهر في المحادثة *')),
+            const SizedBox(height: 12),
+            TextField(controller: traderSenderController, decoration: const InputDecoration(labelText: 'اسم التاجر كما يظهر في المحادثة *')),
             const SizedBox(height: 12),
             TextField(controller: phoneController, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم التاجر (اختياري)')),
-          ]),
+            const SizedBox(height: 8),
+            const Text('نحتاج اسمَي طرفَي المحادثة حتى لا نعكس اتجاه الحوالة بالخطأ. أي اسم غير معروف سيبقى للمراجعة اليدوية.', style: TextStyle(color: Colors.black54)),
+          ])),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
             FilledButton(
               onPressed: () {
-                if (nameController.text.trim().isEmpty) return;
-                Navigator.pop(context, _ImportDetails(nameController.text.trim(), phoneController.text.trim(), text));
+                if (nameController.text.trim().isEmpty ||
+                    ownerNameController.text.trim().isEmpty ||
+                    traderSenderController.text.trim().isEmpty) return;
+                Navigator.pop(context, _ImportDetails(
+                  name: nameController.text.trim(),
+                  phone: phoneController.text.trim(),
+                  text: text,
+                  ownerName: ownerNameController.text.trim(),
+                  traderSenderName: traderSenderController.text.trim(),
+                ));
               },
               child: const Text('تحليل المحادثة'),
             ),
@@ -62,8 +78,14 @@ class _MerchantsScreenState extends State<MerchantsScreen> {
       );
       nameController.dispose();
       phoneController.dispose();
+      ownerNameController.dispose();
+      traderSenderController.dispose();
       if (details == null || !mounted) return;
-      final candidates = WhatsAppChatParser.parse(details.text);
+      final candidates = WhatsAppChatParser.parse(
+        details.text,
+        accountOwnerName: details.ownerName,
+        traderSenderName: details.traderSenderName,
+      );
       if (candidates.isEmpty) {
         _showMessage('لم أعثر على رسائل مالية واضحة. لم يتم تسجيل أي عملية.');
         return;
@@ -130,10 +152,18 @@ class _MerchantsScreenState extends State<MerchantsScreen> {
 }
 
 class _ImportDetails {
-  const _ImportDetails(this.name, this.phone, this.text);
+  const _ImportDetails({
+    required this.name,
+    required this.phone,
+    required this.text,
+    required this.ownerName,
+    required this.traderSenderName,
+  });
   final String name;
   final String phone;
   final String text;
+  final String ownerName;
+  final String traderSenderName;
 }
 
 class _ReviewImportScreen extends StatefulWidget {
