@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -20,23 +22,64 @@ class MerchantsScreen extends StatefulWidget {
 
 class _MerchantsScreenState extends State<MerchantsScreen> {
   int _refresh = 0;
+  StreamSubscription<List<SharedMediaFile>>? _shareSubscription;
+  bool _handlingSharedFile = false;
 
-  Future<void> _importChat() async {
-    final picked = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['txt'],
-      withData: true,
+  @override
+  void initState() {
+    super.initState();
+    _shareSubscription = ReceiveSharingIntent.instance.getMediaStream().listen(
+      (files) { if (files.isNotEmpty) _handleSharedFile(files.first.path); },
+      onError: (_) { if (mounted) _showMessage('تعذر استقبال الملف المشترك. اختر ملف TXT من داخل التطبيق.'); },
     );
-    if (picked == null || picked.files.isEmpty || !mounted) return;
+    ReceiveSharingIntent.instance.getInitialMedia().then((files) {
+      if (files.isNotEmpty && mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _handleSharedFile(files.first.path));
+      }
+      ReceiveSharingIntent.instance.reset();
+    }).catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    _shareSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _handleSharedFile(String path) async {
+    if (!mounted || _handlingSharedFile || path.isEmpty) return;
+    _handlingSharedFile = true;
     try {
-      final file = picked.files.single;
-      final bytes = file.bytes;
-      final path = file.path;
+      if (!path.toLowerCase().endsWith('.txt')) {
+        _showMessage('الملف المشترك ليس TXT. صدّر محادثة واتساب كملف نصي ثم شاركه.');
+        return;
+      }
+      await _importChat(sharedPath: path);
+    } finally {
+      _handlingSharedFile = false;
+      ReceiveSharingIntent.instance.reset();
+    }
+  }
+
+  Future<void> _importChat({String? sharedPath}) async {
+    PlatformFile? selectedFile;
+    String? path = sharedPath;
+    if (sharedPath == null) {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom, allowedExtensions: ['txt'], withData: true,
+      );
+      if (picked == null || picked.files.isEmpty || !mounted) return;
+      selectedFile = picked.files.single;
+      path = selectedFile.path;
+    }
+    try {
+      final bytes = selectedFile?.bytes;
       final text = bytes != null
           ? utf8.decode(bytes, allowMalformed: true)
           : path != null
               ? await File(path).readAsString()
               : throw const FormatException('تعذرت قراءة ملف المحادثة');
+      final fileName = selectedFile?.name ?? path!.split('/').last;
       final nameController = TextEditingController();
       final phoneController = TextEditingController();
       final ownerNameController = TextEditingController();
@@ -46,7 +89,7 @@ class _MerchantsScreenState extends State<MerchantsScreen> {
         builder: (context) => AlertDialog(
           title: const Text('بيانات التاجر'),
           content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('الملف: ${file.name}', maxLines: 2, overflow: TextOverflow.ellipsis),
+            Text('الملف: $fileName', maxLines: 2, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 12),
             TextField(controller: nameController, autofocus: true, decoration: const InputDecoration(labelText: 'اسم التاجر في كشف الحساب *')),
             const SizedBox(height: 12),
