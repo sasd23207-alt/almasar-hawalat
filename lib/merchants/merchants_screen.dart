@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/money.dart';
 import '../data/local_database.dart';
@@ -347,17 +349,36 @@ class _EditableCandidate {
   bool include;
 }
 
-class MerchantStatementScreen extends StatelessWidget {
+class MerchantStatementScreen extends StatefulWidget {
   const MerchantStatementScreen({super.key, required this.merchant});
   final Map<String, Object?> merchant;
+  @override
+  State<MerchantStatementScreen> createState() => _MerchantStatementScreenState();
+}
 
+class _MerchantStatementScreenState extends State<MerchantStatementScreen> {
+  int _revision = 0;
+  Future<void> _openWhatsApp() async {
+    final phone = (widget.merchant['phone'] as String? ?? '').replaceAll(RegExp(r'[^0-9+]'), '');
+    if (phone.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('أضف رقم التاجر مع مفتاح الدولة أولًا.'))); return; }
+    try {
+      final ok = await launchUrl(Uri.parse('https://wa.me/${phone.replaceAll('+', '')}'), mode: LaunchMode.externalApplication);
+      if (!ok && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر فتح واتساب لهذا الرقم. تحقق من الرقم وتثبيت واتساب.')));
+    } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر فتح واتساب. تحقق من الرقم وتثبيت التطبيق.'))); }
+  }
+  Future<void> _addManual() async {
+    final added = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => _ManualMerchantTransactionScreen(merchant: widget.merchant)));
+    if (added == true && mounted) setState(() => _revision++);
+  }
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(merchant['name'] as String)),
+    appBar: AppBar(title: Text(widget.merchant['name'] as String), actions: [IconButton(tooltip: 'فتح واتساب', onPressed: _openWhatsApp, icon: const Icon(Icons.chat_outlined))]),
+    floatingActionButton: FloatingActionButton.extended(onPressed: _addManual, icon: const Icon(Icons.add), label: const Text('إضافة حوالة يدويًا')),
     body: FutureBuilder(
+      key: ValueKey(_revision),
       future: Future.wait([
-        LocalDatabase.instance.getMerchantTransactions(merchant['id'] as int),
-        LocalDatabase.instance.getMerchantTotals(merchant['id'] as int),
+        LocalDatabase.instance.getMerchantTransactions(widget.merchant['id'] as int),
+        LocalDatabase.instance.getMerchantTotals(widget.merchant['id'] as int),
       ]),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
@@ -404,4 +425,55 @@ class MerchantStatementScreen extends StatelessWidget {
 
 String _format(int minor, String currency) {
   try { return fromMinorUnits(minor, currency); } catch (_) { return minor.toString(); }
+}
+
+
+class _ManualMerchantTransactionScreen extends StatefulWidget {
+  const _ManualMerchantTransactionScreen({required this.merchant});
+  final Map<String, Object?> merchant;
+  @override State<_ManualMerchantTransactionScreen> createState() => _ManualMerchantTransactionScreenState();
+}
+class _ManualMerchantTransactionScreenState extends State<_ManualMerchantTransactionScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _amount = TextEditingController();
+  final _note = TextEditingController();
+  DateTime _date = DateTime.now();
+  String _currency = 'LYD';
+  String _direction = 'paid_to_trader';
+  bool _saving = false;
+  String? _error;
+  @override void dispose() { _amount.dispose(); _note.dispose(); super.dispose(); }
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() { _saving = true; _error = null; });
+    try {
+      final minor = toMinorUnits(_amount.text.trim(), _currency);
+      final stamp = DateTime.now().toUtc().microsecondsSinceEpoch;
+      final key = base64Url.encode(utf8.encode('manual|' + widget.merchant['id'].toString() + '|' + stamp.toString() + '|' + Random.secure().nextInt(1 << 32).toString()));
+      final ok = await LocalDatabase.instance.addMerchantTransaction(merchantId: widget.merchant['id'] as int, sourceKey: key, transactionDate: DateTime(_date.year, _date.month, _date.day).toIso8601String().substring(0, 10), sender: 'إضافة يدوية', originalMessage: _note.text.trim().isEmpty ? 'حوالة أضيفت يدويًا' : _note.text.trim(), amountMinor: minor, currency: _currency, direction: _direction, importBatch: 'manual-' + stamp.toString());
+      if (!ok) throw StateError('العملية موجودة مسبقًا ولم تُكرر.');
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) { if (mounted) setState(() { _saving = false; _error = 'لم يتم حفظ الحوالة: $e'; }); }
+  }
+  @override Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('إضافة حوالة يدويًا')),
+    body: Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
+      Text('التاجر: ' + (widget.merchant['name'] as String), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 16),
+      TextFormField(controller: _amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'المبلغ *'), validator: (v) { try { if (toMinorUnits((v ?? '').trim(), _currency) <= 0) return 'أدخل مبلغًا أكبر من صفر'; } catch (_) { return 'صيغة المبلغ غير صحيحة'; } return null; }),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<String>(value: _currency, decoration: const InputDecoration(labelText: 'العملة'), items: const [DropdownMenuItem(value: 'LYD', child: Text('دينار ليبي (LYD)')), DropdownMenuItem(value: 'USD', child: Text('دولار أمريكي (USD)')), DropdownMenuItem(value: 'EUR', child: Text('يورو (EUR)'))], onChanged: _saving ? null : (v) => setState(() => _currency = v ?? 'LYD')),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<String>(value: _direction, decoration: const InputDecoration(labelText: 'اتجاه الحوالة'), items: const [DropdownMenuItem(value: 'paid_to_trader', child: Text('أرسلت للتاجر')), DropdownMenuItem(value: 'received_from_trader', child: Text('استلمت من التاجر'))], onChanged: _saving ? null : (v) => setState(() => _direction = v ?? 'paid_to_trader')),
+      const SizedBox(height: 12),
+      OutlinedButton.icon(onPressed: _saving ? null : () async { final d = await showDatePicker(context: context, initialDate: _date, firstDate: DateTime(2000), lastDate: DateTime(2100)); if (d != null && mounted) setState(() => _date = d); }, icon: const Icon(Icons.calendar_month), label: Text('تاريخ الحوالة: ' + _date.toIso8601String().substring(0, 10))),
+      const SizedBox(height: 12),
+      TextFormField(controller: _note, maxLines: 3, decoration: const InputDecoration(labelText: 'البيان / رقم الحوالة / ملاحظات (اختياري)')),
+      if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Colors.red))),
+      const SizedBox(height: 20),
+      FilledButton.icon(onPressed: _saving ? null : _save, icon: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined), label: Text(_saving ? 'جارٍ الحفظ...' : 'حفظ الحوالة في كشف الحساب')),
+      const SizedBox(height: 8),
+      const Text('تُحفظ العملية محليًا وتُحدّث إجماليات العملة نفسها فقط؛ لا يتم خلط العملات أو تحويلها تلقائيًا.', style: TextStyle(color: Colors.black54, height: 1.5)),
+    ])),
+  );
 }
