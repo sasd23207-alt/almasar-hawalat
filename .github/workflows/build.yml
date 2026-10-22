@@ -34,7 +34,7 @@ jobs:
           import re
           p = Path("android/app/src/main/AndroidManifest.xml")
           text = p.read_text()
-          pattern = r'(<activity\\b[^>]*android:name="[^"]*MainActivity"[^>]*>)(.*?)(</activity>)'
+          pattern = r'(<activity\b[^>]*android:name="[^"]*MainActivity"[^>]*>)(.*?)(</activity>)'
           match = re.search(pattern, text, flags=re.S)
           if not match:
               raise SystemExit("MainActivity activity block not found; refusing to produce an APK without share support")
