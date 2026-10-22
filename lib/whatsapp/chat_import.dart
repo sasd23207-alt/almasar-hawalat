@@ -199,7 +199,21 @@ String? parseWhatsAppDate(String? raw) {
   try {
     final date = DateTime.utc(year, month, day);
     if (date.year != year || date.month != month || date.day != day) return null;
-    return date.toIso8601String();
+    // Keep the timestamp from WhatsApp exports when present. The date order
+    // must still be unambiguous; never guess day/month order.
+    final timeMatch = RegExp(r'(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*([APap][Mm])?').firstMatch(value);
+    if (timeMatch == null) return date.toIso8601String();
+    var hour = int.parse(timeMatch.group(1)!);
+    final minute = int.parse(timeMatch.group(2)!);
+    final second = int.tryParse(timeMatch.group(3) ?? '0') ?? 0;
+    final meridiem = (timeMatch.group(4) ?? '').toLowerCase();
+    if (minute > 59 || second > 59 || hour > 23) return null;
+    if (meridiem.isNotEmpty) {
+      if (hour < 1 || hour > 12) return null;
+      if (meridiem == 'pm' && hour != 12) hour += 12;
+      if (meridiem == 'am' && hour == 12) hour = 0;
+    }
+    return DateTime.utc(year, month, day, hour, minute, second).toIso8601String();
   } catch (_) {
     return null;
   }
