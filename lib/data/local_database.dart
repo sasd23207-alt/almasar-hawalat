@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../core/ledger_integrity.dart';
+import '../core/financial_controls.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
@@ -271,6 +272,34 @@ class LocalDatabase {
     if (kind != 'deposit' && kind != 'withdrawal') {
       throw ArgumentError('نوع العملية غير صحيح');
     }
+
+    final customerRowsForCurrency = await (await database).query(
+      'customers',
+      columns: ['currency'],
+      where: 'id = ?',
+      whereArgs: [customerId],
+      limit: 1,
+    );
+    if (customerRowsForCurrency.isEmpty) {
+      throw StateError('العميل غير موجود');
+    }
+    final currency = customerRowsForCurrency.first['currency'] as String;
+    // Validate the accounting mirror before any balance mutation:
+    // deposits debit cash and credit customer liability; withdrawals reverse it.
+    FinancialControls.validateJournal([
+      JournalLineDraft(
+        accountCode: 'CASH_$currency',
+        currency: currency,
+        debitMinor: kind == 'deposit' ? amountMinor : 0,
+        creditMinor: kind == 'withdrawal' ? amountMinor : 0,
+      ),
+      JournalLineDraft(
+        accountCode: 'CUSTOMER_LIABILITY_$customerId',
+        currency: currency,
+        debitMinor: kind == 'withdrawal' ? amountMinor : 0,
+        creditMinor: kind == 'deposit' ? amountMinor : 0,
+      ),
+    ]);
 
     final db = await database;
     final reference =
