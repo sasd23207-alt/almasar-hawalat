@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../core/ledger_integrity.dart';
 import '../core/financial_controls.dart';
+import 'financial_ledger.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
