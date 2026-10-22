@@ -18,6 +18,10 @@ class LocalDatabase {
     _database = await openDatabase(
       p.join(root, 'almasar_hawalat.db'),
       version: 2,
+      onConfigure: (db) async {
+        // SQLite disables foreign-key enforcement by default unless enabled per connection.
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE customers (
@@ -361,7 +365,11 @@ class LocalDatabase {
       return row;
     }).toList();
 
-    final customerIds = customerRows.map((row) => row['id'] as int).toSet();
+    final customerIdList = customerRows.map((row) => row['id'] as int).toList();
+    if (customerIdList.toSet().length != customerIdList.length) {
+      throw const FormatException('النسخة تحتوي على أرقام عملاء مكررة');
+    }
+    final customerIds = customerIdList.toSet();
     final transferRows = (decoded['transfers'] as List).map((value) {
       if (value is! Map) throw const FormatException('بيانات عملية غير صالحة');
       final row = Map<String, Object?>.from(value);
@@ -382,6 +390,14 @@ class LocalDatabase {
       return row;
     }).toList();
 
+    final transferIds = transferRows.map((row) => row['id'] as int).toList();
+    final transferReferences = transferRows.map((row) => row['reference'] as String).toList();
+    if (transferIds.toSet().length != transferIds.length ||
+        transferReferences.toSet().length != transferReferences.length ||
+        transferReferences.any((reference) => reference.trim().isEmpty)) {
+      throw const FormatException('النسخة تحتوي على أرقام أو مراجع حوالات مكررة أو فارغة');
+    }
+
     // Refuse a backup whose recorded balances contradict its own ledger.
     // This check runs before the destructive replacement transaction.
     validateCustomerLedger(
@@ -400,7 +416,13 @@ class LocalDatabase {
       }
       return row;
     }).toList();
-    final merchantIds = merchantRows.map((row) => row['id'] as int).toSet();
+    final merchantIdList = merchantRows.map((row) => row['id'] as int).toList();
+    final merchantNames = merchantRows.map((row) => (row['name'] as String).trim().toLowerCase()).toList();
+    if (merchantIdList.toSet().length != merchantIdList.length ||
+        merchantNames.toSet().length != merchantNames.length) {
+      throw const FormatException('النسخة تحتوي على أرقام تجار أو أسماء مكررة');
+    }
+    final merchantIds = merchantIdList.toSet();
     final merchantTransactionRows = ((decoded['merchant_transactions'] as List?) ?? const []).map((value) {
       if (value is! Map) throw const FormatException('بيانات عملية تاجر غير صالحة');
       final row = Map<String, Object?>.from(value);
@@ -418,6 +440,14 @@ class LocalDatabase {
       }
       return row;
     }).toList();
+
+    final merchantTransactionIds = merchantTransactionRows.map((row) => row['id'] as int).toList();
+    final sourceKeys = merchantTransactionRows.map((row) => row['source_key'] as String).toList();
+    if (merchantTransactionIds.toSet().length != merchantTransactionIds.length ||
+        sourceKeys.toSet().length != sourceKeys.length ||
+        sourceKeys.any((key) => key.trim().isEmpty)) {
+      throw const FormatException('النسخة تحتوي على أرقام أو مفاتيح عمليات تجار مكررة أو فارغة');
+    }
 
     final db = await database;
     await db.transaction((txn) async {
