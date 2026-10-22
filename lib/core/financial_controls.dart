@@ -244,10 +244,8 @@ class FinancialControls {
   static int convertMinorUnits({
     required int sourceAmountMinor,
     required int rateMicros,
-    required int targetMinorUnitsPerSourceMinor,
   }) {
-    if (sourceAmountMinor <= 0 || rateMicros <= 0 ||
-        targetMinorUnitsPerSourceMinor <= 0) {
+    if (sourceAmountMinor <= 0 || rateMicros <= 0) {
       throw const FormatException('بيانات سعر الصرف غير صالحة');
     }
     final numerator = BigInt.from(sourceAmountMinor) * BigInt.from(rateMicros);
@@ -452,9 +450,9 @@ class FinancialControls {
 
   /// Limits free-form financial references to a safe, predictable shape.
   static String normalizeReference(String raw) {
-    final value = raw.trim().replaceAll(RegExp(r'\\s+'), ' ');
+    final value = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (value.isEmpty || value.length > 120 ||
-        value.contains(RegExp(r'[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]'))) {
+        value.contains(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F]'))) {
       throw const FormatException('مرجع العملية فارغ أو غير صالح');
     }
     return value;
