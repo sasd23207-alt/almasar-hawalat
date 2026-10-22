@@ -6,14 +6,14 @@ void main() {
     test('parses ISO date with timestamp', () {
       expect(
         parseWhatsAppDate('2026-10-20, 12:00:30'),
-        DateTime.utc(2026, 10, 20).toIso8601String(),
+        DateTime.utc(2026, 10, 20, 12, 0, 30).toIso8601String(),
       );
     });
 
     test('parses month-first iPhone date when the day is greater than 12', () {
       expect(
         parseWhatsAppDate('[10/21/26, 10:30:45 AM]'),
-        DateTime.utc(2026, 10, 21).toIso8601String(),
+        DateTime.utc(2026, 10, 21, 10, 30, 45).toIso8601String(),
       );
     });
 
@@ -22,6 +22,17 @@ void main() {
         parseWhatsAppDate('21/10/2026, 10:30'),
         DateTime.utc(2026, 10, 21).toIso8601String(),
       );
+    });
+
+
+    test('preserves day-first timestamp including seconds', () {
+      expect(parseWhatsAppDate('21/10/2026, 10:30:45'),
+          DateTime.utc(2026, 10, 21, 10, 30, 45).toIso8601String());
+    });
+
+    test('converts 12-hour AM/PM timestamp correctly', () {
+      expect(parseWhatsAppDate('[10/21/26, 10:30:45 PM]'),
+          DateTime.utc(2026, 10, 21, 22, 30, 45).toIso8601String());
     });
 
     test('does not guess when both day and month are twelve or less', () {
