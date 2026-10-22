@@ -27,6 +27,35 @@ jobs:
       - name: Generate Android project files
         run: flutter create --platforms=android --org com.almasar --project-name almasar_hawalat .
 
+      - name: Enable receiving WhatsApp exported text files
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          text = p.read_text()
+          pattern = r'(<activity\\b[^>]*android:name="[^"]*MainActivity"[^>]*>)(.*?)(</activity>)'
+          match = re.search(pattern, text, flags=re.S)
+          if not match:
+              raise SystemExit("MainActivity activity block not found; refusing to produce an APK without share support")
+          body = match.group(2)
+          share_filters = '''
+                  <intent-filter>
+                      <action android:name="android.intent.action.SEND" />
+                      <category android:name="android.intent.category.DEFAULT" />
+                      <data android:mimeType="text/plain" />
+                  </intent-filter>
+                  <intent-filter>
+                      <action android:name="android.intent.action.SEND_MULTIPLE" />
+                      <category android:name="android.intent.category.DEFAULT" />
+                      <data android:mimeType="text/plain" />
+                  </intent-filter>
+          '''
+          if 'android.intent.action.SEND_MULTIPLE' not in body:
+              body = body + share_filters
+          p.write_text(text[:match.start(2)] + body + text[match.end(2):])
+          PY
+
       # flutter create adds a sample counter-app test that does not match our app.
       - name: Remove the generated sample test
         run: rm -f test/widget_test.dart
