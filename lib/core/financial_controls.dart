@@ -169,7 +169,7 @@ class FinancialControls {
       payloadDigest,
       previousEventHash,
     ];
-    if (fields.any((field) => field.trim().isEmpty) ||
+    if (fields.take(7).any((field) => field.trim().isEmpty) ||
         !occurredAtUtc.endsWith('Z')) {
       throw const FormatException(
         'بيانات سجل التدقيق ناقصة أو أن الوقت ليس بصيغة UTC',
