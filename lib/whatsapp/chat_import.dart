@@ -201,7 +201,7 @@ String? parseWhatsAppDate(String? raw) {
     if (date.year != year || date.month != month || date.day != day) return null;
     // Keep the timestamp from WhatsApp exports when present. The date order
     // must still be unambiguous; never guess day/month order.
-    final timeMatch = RegExp(r'(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*([APap][Mm])?').firstMatch(value);
+    final timeMatch = RegExp(r'(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([APap][Mm])?').firstMatch(value);
     if (timeMatch == null) return date.toIso8601String();
     var hour = int.parse(timeMatch.group(1)!);
     final minute = int.parse(timeMatch.group(2)!);
