@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 import '../core/financial_controls.dart';
 
@@ -64,6 +66,7 @@ class FinancialLedger {
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS journal_entry_date_idx ON journal_entries(business_date,id)');
     await db.execute('CREATE INDEX IF NOT EXISTS journal_line_account_idx ON journal_lines(account_id,entry_id)');
+    await createControlSchema(db);
   }
 
   static void _currency(String currency) {
