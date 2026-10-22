@@ -27,6 +27,18 @@ jobs:
       - name: Generate Android project files
         run: flutter create --platforms=android --org com.almasar --project-name almasar_hawalat .
 
+      - name: Set Android compile SDK for current share plugin
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/build.gradle.kts")
+          source = p.read_text()
+          source = source.replace("compileSdk = flutter.compileSdkVersion", "compileSdk = 37")
+          p.write_text(source)
+          if "compileSdk = 37" not in p.read_text():
+              raise SystemExit("Failed to set compileSdk to 37")
+          PY
+
       - name: Enable receiving WhatsApp exported text files
         run: |
           python3 - <<'PY'
