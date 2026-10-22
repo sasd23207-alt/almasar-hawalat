@@ -18,7 +18,7 @@ class LocalDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'almasar_hawalat.db'),
-      version: 2,
+      version: 3,
       onConfigure: (db) async {
         // SQLite disables foreign-key enforcement by default unless enabled per connection.
         await db.execute('PRAGMA foreign_keys = ON');
@@ -56,10 +56,15 @@ class LocalDatabase {
           'CREATE INDEX transfers_customer_idx ON transfers(customer_id)',
         );
         await _createMerchantTables(db);
+        await FinancialLedger.createSchema(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await _createMerchantTables(db);
+        }
+        if (oldVersion < 3) {
+          await FinancialLedger.createSchema(db);
+          await FinancialLedger.backfillTransfers(db);
         }
       },
     );
@@ -332,7 +337,8 @@ class LocalDatabase {
       );
       if (updated != 1) throw StateError('تغير الرصيد؛ أعد المحاولة');
 
-      await txn.insert('transfers', {
+      final createdAt = DateTime.now().toUtc().toIso8601String();
+      final transferId = await txn.insert('transfers', {
         'reference': reference,
         'customer_id': customerId,
         'customer_name': customer['name'],
@@ -341,8 +347,20 @@ class LocalDatabase {
         'amount_minor': amount,
         'currency': customer['currency'],
         'note': note.trim(),
-        'created_at': DateTime.now().toUtc().toIso8601String(),
+        'created_at': createdAt,
       });
+      await FinancialLedger.postTransfer(
+        txn,
+        transferId: transferId,
+        reference: reference,
+        customerId: customerId,
+        customerName: customer['name'] as String,
+        currency: customer['currency'] as String,
+        kind: kind,
+        amountMinor: amount,
+        createdAt: createdAt,
+        description: note.trim(),
+      );
     });
     return reference;
   }
@@ -357,7 +375,7 @@ class LocalDatabase {
     final merchantTransactions = await db.query('merchant_transactions', orderBy: 'id ASC');
     return const JsonEncoder.withIndent('  ').convert({
       'format': 'almasar_hawalat_backup',
-      'schema_version': 2,
+      'schema_version': 3,
       'created_at': DateTime.now().toUtc().toIso8601String(),
       'customers': customers,
       'transfers': transfers,
@@ -372,7 +390,7 @@ class LocalDatabase {
     final decoded = jsonDecode(backupText);
     if (decoded is! Map<String, dynamic> ||
         decoded['format'] != 'almasar_hawalat_backup' ||
-        !{1, 2}.contains(decoded['schema_version']) ||
+        !{1, 2, 3}.contains(decoded['schema_version']) ||
         (decoded['schema_version'] == 2 && (decoded['merchants'] is! List || decoded['merchant_transactions'] is! List)) ||
         decoded['customers'] is! List ||
         decoded['transfers'] is! List) {
@@ -480,6 +498,9 @@ class LocalDatabase {
 
     final db = await database;
     await db.transaction((txn) async {
+      await txn.delete('journal_lines');
+      await txn.delete('journal_entries');
+      await txn.delete('journal_accounts');
       await txn.delete('merchant_transactions');
       await txn.delete('merchant_accounts');
       await txn.delete('transfers');
@@ -496,6 +517,8 @@ class LocalDatabase {
       for (final row in merchantTransactionRows) {
         await txn.insert('merchant_transactions', row);
       }
+      // Recreate the journal from the restored transfer source of truth.
+      await FinancialLedger.backfillTransfers(txn);
     });
   }
 }
