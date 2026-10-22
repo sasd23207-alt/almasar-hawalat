@@ -20,7 +20,7 @@ void main() {
     test('parses day-first date when the day is greater than 12', () {
       expect(
         parseWhatsAppDate('21/10/2026, 10:30'),
-        DateTime.utc(2026, 10, 21).toIso8601String(),
+        DateTime.utc(2026, 10, 21, 10, 30).toIso8601String(),
       );
     });
 
