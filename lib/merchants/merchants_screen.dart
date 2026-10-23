@@ -23,22 +23,15 @@ class MerchantsScreen extends StatefulWidget {
 class _MerchantsScreenState extends State<MerchantsScreen> {
   int _refresh = 0;
   StreamSubscription<List<SharedMediaFile>>? _shareSubscription;
-  StreamSubscription<String?>? _sharedTextSubscription;
   bool _handlingSharedFile = false;
 
   @override
   void initState() {
     super.initState();
-    // Accept both shared files and actual text sent by another app.
-    // This enables direct processing when the sender app really provides text;
-    // it cannot make WhatsApp expose its entire private chat history.
+    // Receive exported WhatsApp chat files shared into the app.
     _shareSubscription = ReceiveSharingIntent.instance.getMediaStream().listen(
       (files) { if (files.isNotEmpty) _handleSharedFile(files.first.path); },
       onError: (_) { if (mounted) _showMessage('تعذر استقبال المحتوى المشترك. يمكنك فتح الاستيراد من حساب التاجر.'); },
-    );
-    _sharedTextSubscription = ReceiveSharingIntent.instance.getTextStream().listen(
-      (text) { if (text != null && text.trim().isNotEmpty) _handleSharedText(text); },
-      onError: (_) {},
     );
     ReceiveSharingIntent.instance.getInitialMedia().then((files) {
       if (files.isNotEmpty && mounted) {
@@ -46,29 +39,12 @@ class _MerchantsScreenState extends State<MerchantsScreen> {
       }
       ReceiveSharingIntent.instance.reset();
     }).catchError((_) {});
-    ReceiveSharingIntent.instance.getInitialText().then((text) {
-      if (text != null && text.trim().isNotEmpty && mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _handleSharedText(text));
-      }
-    }).catchError((_) {});
   }
 
   @override
   void dispose() {
     _shareSubscription?.cancel();
-    _sharedTextSubscription?.cancel();
     super.dispose();
-  }
-
-  Future<void> _handleSharedText(String text) async {
-    if (!mounted || _handlingSharedFile || text.trim().isEmpty) return;
-    _handlingSharedFile = true;
-    try {
-      await _importChat(sharedText: text);
-    } finally {
-      _handlingSharedFile = false;
-      ReceiveSharingIntent.instance.reset();
-    }
   }
 
   Future<void> _handleSharedFile(String path) async {
