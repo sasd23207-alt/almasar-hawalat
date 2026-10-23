@@ -84,6 +84,13 @@ class _MerchantsScreenState extends State<MerchantsScreen> {
       final phoneController = TextEditingController();
       final ownerNameController = TextEditingController();
       final traderSenderController = TextEditingController();
+      // Reuse the last participant names for this merchant so repeat imports
+      // need fewer taps. The operator can still edit them before proceeding.
+      final savedProfile = await LocalDatabase.instance.getMerchantImportProfile(nameController.text);
+      if (savedProfile != null) {
+        ownerNameController.text = savedProfile['owner_sender_name'] as String;
+        traderSenderController.text = savedProfile['trader_sender_name'] as String;
+      }
       final details = await showDialog<_ImportDetails>(
         context: context,
         builder: (context) => AlertDialog(
@@ -126,6 +133,16 @@ class _MerchantsScreenState extends State<MerchantsScreen> {
       ownerNameController.dispose();
       traderSenderController.dispose();
       if (details == null || !mounted) return;
+      // Persist the mapping for the next import from this merchant.
+      final profileMerchantId = await LocalDatabase.instance.getOrCreateMerchant(
+        name: details.name,
+        phone: details.phone,
+      );
+      await LocalDatabase.instance.saveMerchantImportProfile(
+        merchantId: profileMerchantId,
+        ownerSenderName: details.ownerName,
+        traderSenderName: details.traderSenderName,
+      );
       final candidates = WhatsAppChatParser.parse(
         details.text,
         accountOwnerName: details.ownerName,
