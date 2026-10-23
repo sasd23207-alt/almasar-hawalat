@@ -4,6 +4,10 @@ on:
   push:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -22,6 +26,127 @@ jobs:
       # because we will need to edit its manifest (share target, permissions).
       - name: Generate Android project files
         run: flutter create --platforms=android --org com.almasar --project-name almasar_hawalat .
+
+      - name: Set Android compile SDK for current share plugin
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/build.gradle.kts")
+          source = p.read_text()
+          source = source.replace("compileSdk = flutter.compileSdkVersion", "compileSdk = 37")
+          p.write_text(source)
+          if "compileSdk = 37" not in p.read_text():
+              raise SystemExit("Failed to set compileSdk to 37")
+          PY
+
+      - name: Enable receiving WhatsApp exported text files
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          text = p.read_text()
+          pattern = r'(<activity\b[^>]*android:name="[^"]*MainActivity"[^>]*>)(.*?)(</activity>)'
+          match = re.search(pattern, text, flags=re.S)
+          if not match:
+              raise SystemExit("MainActivity activity block not found; refusing to produce an APK without share support")
+          body = match.group(2)
+          share_filters = '''
+                  <intent-filter>
+                      <action android:name="android.intent.action.SEND" />
+                      <category android:name="android.intent.category.DEFAULT" />
+                      <data android:mimeType="text/plain" />
+                  </intent-filter>
+                  <intent-filter>
+                      <action android:name="android.intent.action.SEND_MULTIPLE" />
+                      <category android:name="android.intent.category.DEFAULT" />
+                      <data android:mimeType="text/plain" />
+                  </intent-filter>
+          '''
+          if 'android.intent.action.SEND_MULTIPLE' not in body:
+              body = body + share_filters
+          p.write_text(text[:match.start(2)] + body + text[match.end(2):])
+          PY
+
+      - name: Implement native Android shared-text bridge
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          candidates = list(Path("android/app/src/main/kotlin").rglob("MainActivity.kt"))
+          if len(candidates) != 1:
+              raise SystemExit(f"Expected exactly one generated MainActivity.kt, found {len(candidates)}")
+          p = candidates[0]
+          original = p.read_text()
+          match = re.search(r"^package\s+([A-Za-z0-9_.]+)", original, flags=re.M)
+          if not match:
+              raise SystemExit("Could not identify generated MainActivity package")
+          package = match.group(1)
+          source = f'''package {package}
+
+          import android.content.Intent
+          import android.os.Bundle
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.EventChannel
+          import io.flutter.plugin.common.MethodChannel
+
+          class MainActivity : FlutterActivity() {{
+              private var pendingSharedText: String? = null
+              private var sharedTextSink: EventChannel.EventSink? = null
+
+              override fun onCreate(savedInstanceState: Bundle?) {{
+                  super.onCreate(savedInstanceState)
+                  captureSharedText(intent)
+              }}
+
+              override fun onNewIntent(intent: Intent) {{
+                  super.onNewIntent(intent)
+                  setIntent(intent)
+                  captureSharedText(intent)
+              }}
+
+              private fun captureSharedText(intent: Intent?) {{
+                  if (intent?.action != Intent.ACTION_SEND || intent.type != "text/plain") return
+                  val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+                      ?: intent.getStringExtra(Intent.EXTRA_SUBJECT)
+                  if (!text.isNullOrBlank()) {{
+                      pendingSharedText = text
+                      sharedTextSink?.success(text)
+                  }}
+              }}
+
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {{
+                  super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "almasar/shared_text")
+                      .setMethodCallHandler {{ call, result ->
+                          if (call.method == "takeInitialSharedText") {{
+                              result.success(pendingSharedText)
+                              pendingSharedText = null
+                          }} else {{
+                              result.notImplemented()
+                          }}
+                      }}
+                  EventChannel(flutterEngine.dartExecutor.binaryMessenger, "almasar/shared_text_events")
+                      .setStreamHandler(object : EventChannel.StreamHandler {{
+                          override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {{
+                              sharedTextSink = events
+                              pendingSharedText?.let {{
+                                  events?.success(it)
+                                  pendingSharedText = null
+                              }}
+                          }}
+
+                          override fun onCancel(arguments: Any?) {{
+                              sharedTextSink = null
+                          }}
+                      }})
+              }}
+          }}
+          '''
+          p.write_text(source)
+          print(f"Installed shared-text bridge in {p}")
+          PY
 
       # flutter create adds a sample counter-app test that does not match our app.
       - name: Remove the generated sample test
@@ -44,4 +169,14 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: Build ${{ github.run_number }}
+          files: build/app/outputs/flutter-apk/app-debug.apk
+
+      # Test-only APK from the development branch; never use for real financial data.
+      - name: Publish development APK as a test prerelease
+        if: github.ref == 'refs/heads/feature/local-database-mobile-app'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test-build-${{ github.run_number }}
+          name: Test build ${{ github.run_number }}
+          prerelease: true
           files: build/app/outputs/flutter-apk/app-debug.apk
