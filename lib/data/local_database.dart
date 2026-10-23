@@ -19,7 +19,7 @@ class LocalDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'almasar_hawalat.db'),
-      version: 3,
+      version: 4,
       onConfigure: (db) async {
         // SQLite disables foreign-key enforcement by default unless enabled per connection.
         await db.execute('PRAGMA foreign_keys = ON');
@@ -57,6 +57,7 @@ class LocalDatabase {
           'CREATE INDEX transfers_customer_idx ON transfers(customer_id)',
         );
         await _createMerchantTables(db);
+        await _createMerchantImportProfiles(db);
         await FinancialLedger.createSchema(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -66,6 +67,9 @@ class LocalDatabase {
         if (oldVersion < 3) {
           await FinancialLedger.createSchema(db);
           await FinancialLedger.backfillTransfers(db);
+        }
+        if (oldVersion < 4) {
+          await _createMerchantImportProfiles(db);
         }
       },
     );
@@ -100,6 +104,51 @@ class LocalDatabase {
       )
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS merchant_tx_merchant_date_idx ON merchant_transactions(merchant_id, transaction_date)');
+  }
+
+  Future<void> _createMerchantImportProfiles(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS merchant_import_profiles (
+        merchant_id INTEGER PRIMARY KEY,
+        owner_sender_name TEXT NOT NULL,
+        trader_sender_name TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (merchant_id) REFERENCES merchant_accounts(id) ON DELETE CASCADE
+      )
+    ''');
+  }
+
+  /// Returns saved WhatsApp participant names for a merchant, if configured.
+  Future<Map<String, Object?>?> getMerchantImportProfile(String merchantName) async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT p.owner_sender_name, p.trader_sender_name
+      FROM merchant_import_profiles p
+      JOIN merchant_accounts m ON m.id = p.merchant_id
+      WHERE m.name = ? COLLATE NOCASE LIMIT 1
+    ''', [merchantName.trim()]);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// Stores only the participant labels needed to reduce repeated setup.
+  /// It does not store the chat text or financial messages.
+  Future<void> saveMerchantImportProfile({
+    required int merchantId,
+    required String ownerSenderName,
+    required String traderSenderName,
+  }) async {
+    final owner = ownerSenderName.trim();
+    final trader = traderSenderName.trim();
+    if (owner.isEmpty || trader.isEmpty) {
+      throw ArgumentError('اسما طرفَي المحادثة مطلوبان');
+    }
+    final db = await database;
+    await db.insert('merchant_import_profiles', {
+      'merchant_id': merchantId,
+      'owner_sender_name': owner,
+      'trader_sender_name': trader,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<int> getOrCreateMerchant({required String name, String phone = ''}) async {
