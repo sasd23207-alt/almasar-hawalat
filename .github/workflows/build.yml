@@ -78,7 +78,7 @@ jobs:
               raise SystemExit(f"Expected exactly one generated MainActivity.kt, found {len(candidates)}")
           p = candidates[0]
           original = p.read_text()
-          match = re.search(r"^package\\s+([A-Za-z0-9_.]+)", original, flags=re.M)
+          match = re.search(r"^package\s+([A-Za-z0-9_.]+)", original, flags=re.M)
           if not match:
               raise SystemExit("Could not identify generated MainActivity package")
           package = match.group(1)
