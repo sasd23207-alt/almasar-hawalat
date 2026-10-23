@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/money.dart';
@@ -23,7 +24,11 @@ class MerchantsScreen extends StatefulWidget {
 class _MerchantsScreenState extends State<MerchantsScreen> {
   int _refresh = 0;
   StreamSubscription<List<SharedMediaFile>>? _shareSubscription;
+  StreamSubscription<dynamic>? _sharedTextSubscription;
+  static const MethodChannel _sharedTextChannel = MethodChannel('almasar/shared_text');
+  static const EventChannel _sharedTextEvents = EventChannel('almasar/shared_text_events');
   bool _handlingSharedFile = false;
+  bool _handlingSharedText = false;
 
   @override
   void initState() {
@@ -33,6 +38,19 @@ class _MerchantsScreenState extends State<MerchantsScreen> {
       (files) { if (files.isNotEmpty) _handleSharedFile(files.first.path); },
       onError: (_) { if (mounted) _showMessage('تعذر استقبال المحتوى المشترك. يمكنك فتح الاستيراد من حساب التاجر.'); },
     );
+    // Raw text shares use a small native Android bridge; the media plugin only
+    // exposes files/media in this dependency version.
+    _sharedTextSubscription = _sharedTextEvents.receiveBroadcastStream().listen(
+      (value) {
+        if (value is String && value.trim().isNotEmpty) _handleSharedText(value);
+      },
+      onError: (_) {
+        if (mounted) _showMessage('تعذر استقبال نص واتساب. يمكنك استخدام تصدير المحادثة كملف TXT.');
+      },
+    );
+    _sharedTextChannel.invokeMethod<String>('takeInitialSharedText').then((value) {
+      if (value != null && value.trim().isNotEmpty && mounted) _handleSharedText(value);
+    }).catchError((_) {});
     ReceiveSharingIntent.instance.getInitialMedia().then((files) {
       if (files.isNotEmpty && mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _handleSharedFile(files.first.path));
@@ -44,7 +62,18 @@ class _MerchantsScreenState extends State<MerchantsScreen> {
   @override
   void dispose() {
     _shareSubscription?.cancel();
+    _sharedTextSubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _handleSharedText(String text) async {
+    if (!mounted || _handlingSharedText || text.trim().isEmpty) return;
+    _handlingSharedText = true;
+    try {
+      await _importChat(sharedText: text);
+    } finally {
+      _handlingSharedText = false;
+    }
   }
 
   Future<void> _handleSharedFile(String path) async {
