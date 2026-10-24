@@ -115,13 +115,8 @@ class _MerchantsScreenState extends State<MerchantsScreen> {
       final phoneController = TextEditingController();
       final ownerNameController = TextEditingController();
       final traderSenderController = TextEditingController();
-      // Reuse the last participant names for this merchant so repeat imports
-      // need fewer taps. The operator can still edit them before proceeding.
-      final savedProfile = await LocalDatabase.instance.getMerchantImportProfile(nameController.text);
-      if (savedProfile != null) {
-        ownerNameController.text = savedProfile['owner_sender_name'] as String;
-        traderSenderController.text = savedProfile['trader_sender_name'] as String;
-      }
+      // Participant names are loaded after the operator enters the merchant name.
+      // Looking up an empty controller here never found a saved profile.
       final details = await showDialog<_ImportDetails>(
         context: context,
         builder: (context) => AlertDialog(
@@ -129,7 +124,24 @@ class _MerchantsScreenState extends State<MerchantsScreen> {
           content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
             Text('الملف: $fileName', maxLines: 2, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 12),
-            TextField(controller: nameController, autofocus: true, decoration: const InputDecoration(labelText: 'اسم التاجر في كشف الحساب *')),
+            TextField(
+              controller: nameController,
+              autofocus: true,
+              textInputAction: TextInputAction.next,
+              onEditingComplete: () async {
+                final name = nameController.text.trim();
+                if (name.isNotEmpty) {
+                  final profile = await LocalDatabase.instance.getMerchantImportProfile(name);
+                  if (profile != null && mounted) {
+                    ownerNameController.text = profile['owner_sender_name'] as String;
+                    traderSenderController.text = profile['trader_sender_name'] as String;
+                    _showMessage('تم استرجاع أسماء أطراف المحادثة المحفوظة لهذا التاجر.');
+                  }
+                }
+                if (context.mounted) FocusScope.of(context).nextFocus();
+              },
+              decoration: const InputDecoration(labelText: 'اسم التاجر في كشف الحساب *', helperText: 'اكتب الاسم ثم انتقل للحقل التالي لاسترجاع الإعدادات السابقة'),
+            ),
             const SizedBox(height: 12),
             TextField(controller: ownerNameController, decoration: const InputDecoration(labelText: 'اسمك كما يظهر في المحادثة *')),
             const SizedBox(height: 12),
