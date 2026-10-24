@@ -27,6 +27,38 @@ jobs:
       - name: Generate Android project files
         run: flutter create --platforms=android --org com.almasar --project-name almasar_hawalat .
 
+      # Give the new build a different Android install identity and launcher name.
+      - name: Set new app name and package ID
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          gradle = Path("android/app/build.gradle.kts")
+          text = gradle.read_text(encoding="utf-8")
+          text, count = re.subn(
+              r'applicationId\\s*=\\s*"[^"]+"',
+              'applicationId = "com.almasar.hawalatnew"',
+              text,
+              count=1
+          )
+          if count != 1:
+              raise SystemExit("Could not find applicationId in Android Gradle file")
+          gradle.write_text(text, encoding="utf-8")
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text(encoding="utf-8")
+          text, count = re.subn(
+              r'android:label="[^"]*"',
+              'android:label="حوالاتي الجديدة"',
+              text,
+              count=1
+          )
+          if count != 1:
+              raise SystemExit("Could not find Android app label in manifest")
+          manifest.write_text(text, encoding="utf-8")
+          PY
+
       - name: Set Android compile SDK for current share plugin
         run: |
           python3 - <<'PY'
