@@ -26,7 +26,7 @@ class AlmasarApp extends StatelessWidget {
   Widget build(BuildContext context) {
     const navy = Color(0xFF142B4A);
     return MaterialApp(
-      title: 'المسار للحوالات',
+      title: 'حوالاتي',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -199,7 +199,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
     return Scaffold(
       appBar: AppBar(
-        title: const Text('المسار للحوالات', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('حوالاتي', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           PopupMenuButton<String>(
             tooltip: 'النسخ الاحتياطي',
