@@ -37,7 +37,7 @@ jobs:
           gradle = Path("android/app/build.gradle.kts")
           text = gradle.read_text(encoding="utf-8")
           text, count = re.subn(
-              r'applicationId\\s*=\\s*"[^"]+"',
+              r'applicationId\s*=\s*"[^"]+"',
               'applicationId = "com.almasar.hawalatnew"',
               text,
               count=1
