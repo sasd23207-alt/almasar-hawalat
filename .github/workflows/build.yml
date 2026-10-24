@@ -18,10 +18,47 @@ jobs:
           channel: stable
           cache: true
 
-      # The android/ folder is generated here for now. Later it is committed,
-      # because we will need to edit its manifest (share target, permissions).
+      # Generate the Android project files.
       - name: Generate Android project files
         run: flutter create --platforms=android --org com.almasar --project-name almasar_hawalat .
+
+      # Give this APK a distinct install identity so Android installs it separately
+      # instead of replacing the previously installed app.
+      - name: Set new app name and package ID
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          gradle = Path("android/app/build.gradle.kts")
+          if not gradle.exists():
+              gradle = Path("android/app/build.gradle")
+          if not gradle.exists():
+              raise SystemExit("Android app Gradle file was not generated")
+
+          text = gradle.read_text(encoding="utf-8")
+          text, count = re.subn(
+              r'applicationId\s*=\s*"[^"]+"',
+              'applicationId = "com.almasar.hawalatnew"',
+              text,
+              count=1
+          )
+          if count != 1:
+              raise SystemExit("Could not find applicationId in Android Gradle file")
+          gradle.write_text(text, encoding="utf-8")
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text(encoding="utf-8")
+          text, count = re.subn(
+              r'android:label="[^"]*"',
+              'android:label="حوالاتي الجديدة"',
+              text,
+              count=1
+          )
+          if count != 1:
+              raise SystemExit("Could not find Android app label in manifest")
+          manifest.write_text(text, encoding="utf-8")
+          PY
 
       # flutter create adds a sample counter-app test that does not match our app.
       - name: Remove the generated sample test
@@ -34,7 +71,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: almasar-debug-apk
+          name: hawalati-new-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
 
       # Download link: a GitHub Release holding the APK (only for the main branch).
@@ -43,5 +80,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
+          name: حوالاتي الجديدة - Build ${{ github.run_number }}
           files: build/app/outputs/flutter-apk/app-debug.apk
